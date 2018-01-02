@@ -93,15 +93,21 @@ fig = plt.figure()
 plt.tight_layout()
 gs = gridspec.GridSpec(len(args['graph']),1)
 
-print('args[graph]=',args['graph'])
 graphs={}
 for step in range(0,args['common'].steps+1):
     graphs[step]=[]
-    pos=0
-    for g in args['graph']:
-        subplot=fig.add_subplot(gs[pos],label=g.subcommand+':'+str(step))
-        graphs[step].append(modules['graph'][g.subcommand].Graph(subplot,g))
-        pos+=1
+    for i in range(0,len(args['graph'])):
+        arg = args['graph'][i]
+        #subplot=fig.add_subplot(gs[i],label=arg.subcommand+':'+str(step))
+        #g = modules['graph'][arg.subcommand].Graph(subplot,arg)
+        g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(step),arg)
+        graphs[step].append(g)
+
+    #pos=0
+    #for g in args['graph']:
+        #subplot=fig.add_subplot(gs[pos],label=g.subcommand+':'+str(step))
+        #graphs[step].append(modules['graph'][g.subcommand].Graph(subplot,g))
+        #pos+=1
 
 titles_step=[]
 
@@ -188,18 +194,18 @@ try:
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
-                        w = tf.Variable(randomness([n0,n]))
-                        b = tf.Variable(bias*tf.ones([1,n]))
-                        y = activation(tf.matmul(y,w)+b)
+                        w = tf.Variable(randomness([n0,n]),name='w')
+                        b = tf.Variable(bias*tf.ones([1,n]),name='b')
+                        y = activation(tf.matmul(y,w)+b,name='y')
                     n0 = n
                     if opts['activation']=='crelu':
                         n0*=2
                     layer+=1
 
                 with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,1]))
+                    w = tf.Variable(randomness([n0,1]),name='w')
                     #w = tf.ones([n0,1])
-                    b = tf.Variable(bias)
+                    b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
 
             with tf.name_scope('eval'):
@@ -268,24 +274,25 @@ except KeyboardInterrupt:
 ################################################################################
 print('saving/displaying result')
 
-if args['common'].steps==0:
-    frames=0
-    for graph in graphs[0]:
-        frames=max(frames,graph.get_num_frames())
+epochframes=0
+for graph in graphs[0]:
+    epochframes=max(epochframes,graph.get_num_frames())
 
+if args['common'].steps==0:
     def update(frame):
         if frame!=0:
             print('\033[F',end='')
         print('  animating frame '+str(frame))
         for graph in graphs[0]:
             graph.update(frame)
-    ani = FuncAnimation(fig, update, frames=frames, init_func=lambda:[])
+    ani = FuncAnimation(fig, update, frames=epochframes, init_func=lambda:[])
 
 else:
     for step in range(0,args['common'].steps+1):
         for graph in graphs[step]:
-            for frame in range(0,10):
+            for frame in range(0,epochframes):
                 graph.update(frame)
+
     def update(frame):
         if frame!=0:
             print('\033[F',end='')
@@ -294,7 +301,7 @@ else:
         print(titles_step[frame])
         for step in range(0,args['common'].steps+1):
             for graph in graphs[step]:
-                graph.subplot.set_visible(step==frame)
+                graph.set_visible(step==frame)
     ani = FuncAnimation(fig, update, frames=args['common'].steps+1, init_func=lambda:[])
 
 #basename=' '.join(sys.argv[1:])

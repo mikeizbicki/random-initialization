@@ -3,10 +3,11 @@ def modify_parser(subparsers):
     parser.add_argument('--epoch_resolution',type=int,default=1)
 
 class Graph:
-    def __init__(self,subplot,args):
-        self.subplot=subplot
-        subplot.set_xlabel('epoch')
-        subplot.set_ylabel('loss')
+    def __init__(self,fig,pos,label,args):
+        self.args=args
+        self.subplot=fig.add_subplot(pos,label='loss:'+label)
+        #self.subplot.set_xlabel('epoch')
+        #self.subplot.set_ylabel('loss')
 
         self.args=args
         self.num_records=0
@@ -32,3 +33,6 @@ class Graph:
 
     def update(self,frame):
         pass
+
+    def set_visible(self,b):
+        self.subplot.set_visible(b)
