@@ -30,9 +30,6 @@ for loader, name, is_pkg in pkgutil.walk_packages(data.__path__):
 
 subparser_common = subparsers.add_parser('common')
 subparser_common.add_argument('--steps',type=int,default=0)
-#subparser_common.add_argument('--plotevery',type=int,default=10)
-#subparser_common.add_argument('--zoomtarget',type=bool,default=True)
-#subparser_common.add_argument('--zoomlevel',type=float,default=1.0)
 subparser_common.add_argument('--seed_tf',type=int,default=0)
 subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
@@ -55,7 +52,7 @@ parser_network.add_argument('--activation',choices=['relu','relu6','crelu','elu'
 parser_weights = subparser_model.add_argument_group('weight initialization')
 parser_weights.add_argument('--scale',type=interval(float),default=1.0)
 parser_weights.add_argument('--mean',type=interval(float),default=0.0)
-parser_weights.add_argument('--randomness',choices=['normal','uniform','gamma'],default='normal')
+parser_weights.add_argument('--randomness',choices=['normal','uniform','laplace'],default='normal')
 parser_weights.add_argument('--abs',type=bool,default=False)
 parser_weights.add_argument('--normalize',type=bool,default=True)
 
@@ -152,22 +149,14 @@ try:
 
             activation=eval('tf.nn.'+opts['activation'])
 
-            def randomness(shape,seed):
-                ret=None
-                if opts['randomness']=='normal':
-                    ret=tf.random_normal(shape,seed=seed+opts['seed_node'])
-                if opts['randomness']=='uniform':
-                    ret=tf.random_uniform(shape,minval=-1,maxval=1,seed=seed+opts['seed_node'])
-                if opts['randomness']=='gamma':
-                    alpha=1
-                    beta=1
-                    sign=tf.sign(tf.random_uniform(shape,minval=-1,maxval=1,seed=seed+opts['seed_node']))
-                    ret=sign*tf.random_gamma(shape,alpha=alpha,beta=beta,seed=seed+opts['seed_node'])
-                if opts['abs']:
-                    ret=tf.abs(ret)
+            def randomness(size,seed):
+                from stable_random import stable_random
+                r=stable_random(size,opts['seed_np']+seed,dist=opts['randomness']).astype(np.float32)
                 if opts['normalize']:
-                    ret/=tf.cast(tf.size(ret),tf.float32)
-                return opts['mean']+opts['scale']*ret
+                    r/=np.amax(np.abs(r))
+                if opts['abs']:
+                    r=np.abs(r)
+                return opts['mean']+opts['scale']*r
 
             ########################################
             print('  creating tensorflow graph')
@@ -188,8 +177,9 @@ try:
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
-                        w = tf.Variable(randomness([n0,n],n),name='w')
-                        b = tf.Variable(bias*tf.ones([1,n]),name='b')
+                        w = tf.Variable(randomness([n0,n],layer),name='w')
+                        b = tf.Variable(randomness([1,n],layer+1),name='b')
+                        #b = tf.Variable(bias*tf.ones([1,n]),name='b')
                         y = activation(tf.matmul(y,w)+b,name='y')
                     n0 = n
                     if opts['activation']=='crelu':
@@ -197,7 +187,7 @@ try:
                     layer+=1
 
                 with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,1],n+1),name='w')
+                    w = tf.Variable(randomness([n0,1],layer+1),name='w')
                     #w = tf.ones([n0,1])
                     b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
@@ -266,11 +256,11 @@ except KeyboardInterrupt:
     print('>>>>>>>>>>>>>> KeyboardInterupt <<<<<<<<<<<<<<')
 
 ################################################################################
-print('saving/displaying result')
+print('visualizing')
 
 epochframes=0
 for graph in graphs[0]:
-    epochframes=max(epochframes,graph.get_num_frames())
+    epochframes=max(1,epochframes,graph.get_num_frames())
 
 if args['common'].steps==0:
     def update(frame):
@@ -282,11 +272,14 @@ if args['common'].steps==0:
     ani = FuncAnimation(fig, update, frames=epochframes, init_func=lambda:[])
 
 else:
+    print('  rendering step frames')
     for step in range(0,args['common'].steps+1):
+        print('    step: ',step)
         for graph in graphs[step]:
             for frame in range(0,epochframes):
                 graph.update(frame)
 
+    print('  animating')
     def update(frame):
         if frame!=0:
             print('\033[F',end='')

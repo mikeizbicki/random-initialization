@@ -1,6 +1,7 @@
 def modify_parser(subparsers):
     parser = subparsers.add_parser('data', help='plots the data')
     parser.add_argument('--epoch_resolution',type=int,default=10)
+    parser.add_argument('--plot_data',type=str,default='True')
 
 class Graph():
     def __init__(self,fig,pos,label,args,opts):
@@ -26,13 +27,15 @@ class Graph():
 
     def finalize(self,vars):
         import numpy as np
-        xresolution=100
-        xmin=vars['xmin']
-        xmax=vars['xmax']
-        ax_data_xs2 = np.linspace(xmin,xmax,xresolution).reshape(xresolution,1)
-        ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
-        self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)
-        self.subplot.plot(vars['X'],vars['Y'],'.',color=(0,0,1),zorder=100001)
+
+        if self.args.plot_data=='True':
+            xresolution=100
+            xmin=vars['xmin']
+            xmax=vars['xmax']
+            ax_data_xs2 = np.linspace(xmin,xmax,xresolution).reshape(xresolution,1)
+            ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
+            self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)
+            self.subplot.plot(vars['X'],vars['Y'],'.',color=(0,0,1),zorder=100001)
 
     def update(self,frame):
         import matplotlib.pyplot as plt
