@@ -45,6 +45,9 @@ class Graph():
     def get_num_frames(self):
         return 1
 
+    def init_step(self,vars):
+        pass
+
     def record_epoch(self,vars):
         if self.subgraphs:
             for subgraph in self.subgraphs:

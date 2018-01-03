@@ -16,6 +16,15 @@ class Graph:
     def get_num_frames(self):
         return 0
 
+    def init_step(self,vars):
+        import numpy as np
+        xmin=vars['xmin']
+        xmax=vars['xmax']
+        xmargin=vars['xmargin']
+        xresolution=100
+        self.ax_data_xs2 = np.linspace(xmin,xmax,xresolution).reshape(xresolution,1)
+        pass
+
     def record_epoch(self,vars):
         if vars['epoch']%self.args.epoch_resolution==0:
             self.num_records+=1
@@ -24,7 +33,7 @@ class Graph:
             res_ave,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_ave)
             self.aves.append(res_ave)
 
-            dict_integral={vars['x_']:vars['ax_data_xs2']}
+            dict_integral={vars['x_']:self.ax_data_xs2}
             res_integral,=vars['sess'].run([vars['loss_true_ave']],feed_dict=dict_integral)
             self.integrals.append(res_integral)
         

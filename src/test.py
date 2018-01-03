@@ -224,22 +224,22 @@ try:
 
             xmin=-10
             xmax=10
-            steps=256
+            #steps=256
             xmargin=0.1*(xmax-xmin)/2
-            ax_data_xs = np.linspace(xmin-xmargin,xmax+xmargin,steps).reshape(steps,1)
+            #ax_data_xs = np.linspace(xmin-xmargin,xmax+xmargin,steps).reshape(steps,1)
 
             X,Y,Y_true = data.generate_data(opts)
-
-            ax_data_xs2 = np.linspace(xmin,xmax,steps).reshape(steps,1)
-            ax_data_ys2 = sess.run(y_true,feed_dict={x_:ax_data_xs2})
 
             ########################################
             print('  training')
 
+            for graph in graphs[step]:
+                graph.init_step(dict(globals(),**locals()))
+
             for epoch in range(0,opts['epochs']+1):
                 if epoch==0:
                     sess.run(tf.global_variables_initializer())
-                    ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
+                    #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
                 else:
                     rng_state = np.random.get_state()
                     np.random.shuffle(X)
@@ -250,7 +250,7 @@ try:
                         Xbatch=X[batchstart:batchstop]
                         Ybatch=Y[batchstart:batchstop]
                         sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch})
-                        ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
+                        #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
 
                 if epoch!=0:
                     print('\033[F',end='')
