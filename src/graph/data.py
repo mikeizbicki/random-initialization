@@ -3,11 +3,9 @@ def modify_parser(subparsers):
     parser.add_argument('--epoch_resolution',type=int,default=10)
 
 class Graph():
-    def __init__(self,fig,pos,label,args):
+    def __init__(self,fig,pos,label,args,opts):
         self.args=args
         self.subplot=fig.add_subplot(pos,label='data:'+label)
-        #self.subplot.set_xlabel('input values')
-        #self.subplot.set_ylabel('output values')
         self.lines=[]
 
     def get_num_frames(self):

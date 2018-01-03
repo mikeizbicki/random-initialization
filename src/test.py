@@ -94,20 +94,6 @@ plt.tight_layout()
 gs = gridspec.GridSpec(len(args['graph']),1)
 
 graphs={}
-for step in range(0,args['common'].steps+1):
-    graphs[step]=[]
-    for i in range(0,len(args['graph'])):
-        arg = args['graph'][i]
-        #subplot=fig.add_subplot(gs[i],label=arg.subcommand+':'+str(step))
-        #g = modules['graph'][arg.subcommand].Graph(subplot,arg)
-        g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(step),arg)
-        graphs[step].append(g)
-
-    #pos=0
-    #for g in args['graph']:
-        #subplot=fig.add_subplot(gs[pos],label=g.subcommand+':'+str(step))
-        #graphs[step].append(modules['graph'][g.subcommand].Graph(subplot,g))
-        #pos+=1
 
 titles_step=[]
 
@@ -152,23 +138,31 @@ try:
 
         data = modules['data']['synthetic'].Data(args['data'])
 
+        ######################################## 
+        print('  initializing graphs')
+        graphs[step]=[]
+        for i in range(0,len(args['graph'])):
+            arg = args['graph'][i]
+            g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(step),arg,opts)
+            graphs[step].append(g)
+
         ########################################
         print('  setting tensorflow options')
         with tf.Graph().as_default():
 
             activation=eval('tf.nn.'+opts['activation'])
 
-            def randomness(shape):
+            def randomness(shape,seed):
                 ret=None
                 if opts['randomness']=='normal':
-                    ret=tf.random_normal(shape,seed=opts['seed_node'])
+                    ret=tf.random_normal(shape,seed=seed+opts['seed_node'])
                 if opts['randomness']=='uniform':
-                    ret=tf.random_uniform(shape,minval=-1,maxval=1,seed=opts['seed_node'])
+                    ret=tf.random_uniform(shape,minval=-1,maxval=1,seed=seed+opts['seed_node'])
                 if opts['randomness']=='gamma':
                     alpha=1
                     beta=1
-                    sign=tf.sign(tf.random_uniform(shape,minval=-1,maxval=1,seed=opts['seed_node']))
-                    ret=sign*tf.random_gamma(shape,alpha=alpha,beta=beta,seed=opts['seed_node'])
+                    sign=tf.sign(tf.random_uniform(shape,minval=-1,maxval=1,seed=seed+opts['seed_node']))
+                    ret=sign*tf.random_gamma(shape,alpha=alpha,beta=beta,seed=seed+opts['seed_node'])
                 if opts['abs']:
                     ret=tf.abs(ret)
                 if opts['normalize']:
@@ -194,7 +188,7 @@ try:
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
-                        w = tf.Variable(randomness([n0,n]),name='w')
+                        w = tf.Variable(randomness([n0,n],n),name='w')
                         b = tf.Variable(bias*tf.ones([1,n]),name='b')
                         y = activation(tf.matmul(y,w)+b,name='y')
                     n0 = n
@@ -203,7 +197,7 @@ try:
                     layer+=1
 
                 with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,1]),name='w')
+                    w = tf.Variable(randomness([n0,1],n+1),name='w')
                     #w = tf.ones([n0,1])
                     b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
