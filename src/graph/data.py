@@ -2,6 +2,9 @@ def modify_parser(subparsers):
     parser = subparsers.add_parser('data', help='plots the data')
     parser.add_argument('--epoch_resolution',type=int,default=10)
     parser.add_argument('--plot_data',type=str,default='True')
+    parser.add_argument('--xmin',type=float,default=-10)
+    parser.add_argument('--xmax',type=float,default=10)
+    parser.add_argument('--xresolution',type=float,default=256)
 
 class Graph():
     def __init__(self,fig,pos,label,args,opts):
@@ -15,10 +18,10 @@ class Graph():
 
     def init_step(self,vars):
         import numpy as np
-        xresolution=100
-        xmin=vars['xmin']
-        xmax=vars['xmax']
-        xmargin=vars['xmargin']
+        xresolution=self.args.xresolution
+        xmin=self.args.xmin
+        xmax=self.args.xmax
+        xmargin=0.1*(xmax-xmin)/2
         self.ax_data_xs = np.linspace(xmin-xmargin,xmax+xmargin,xresolution).reshape(xresolution,1)
 
     def record_epoch(self,vars):
@@ -29,9 +32,9 @@ class Graph():
         import numpy as np
 
         if self.args.plot_data=='True':
-            xresolution=100
-            xmin=vars['xmin']
-            xmax=vars['xmax']
+            xresolution=self.args.xresolution
+            xmin=self.args.xmin
+            xmax=self.args.xmax
             ax_data_xs2 = np.linspace(xmin,xmax,xresolution).reshape(xresolution,1)
             ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
             self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)

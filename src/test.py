@@ -54,7 +54,7 @@ parser_weights.add_argument('--scale',type=interval(float),default=1.0)
 parser_weights.add_argument('--mean',type=interval(float),default=0.0)
 parser_weights.add_argument('--randomness',choices=['normal','uniform','laplace'],default='normal')
 parser_weights.add_argument('--abs',type=bool,default=False)
-parser_weights.add_argument('--normalize',type=bool,default=True)
+parser_weights.add_argument('--normalize',type=str,default='True')
 
 ####################
 
@@ -152,7 +152,7 @@ try:
             def randomness(size,seed):
                 from stable_random import stable_random
                 r=stable_random(size,opts['seed_np']+seed,dist=opts['randomness']).astype(np.float32)
-                if opts['normalize']:
+                if opts['normalize']=='True':
                     r/=np.amax(np.abs(r))
                 if opts['abs']:
                     r=np.abs(r)
@@ -212,9 +212,8 @@ try:
             ########################################
             print('  generating data')
 
-            xmin=-10
-            xmax=10
-            #steps=256
+            xmin=-500
+            xmax=500
             xmargin=0.1*(xmax-xmin)/2
             #ax_data_xs = np.linspace(xmin-xmargin,xmax+xmargin,steps).reshape(steps,1)
 
@@ -293,6 +292,6 @@ else:
 
 #basename=' '.join(sys.argv[1:])
 basename='test'
-fig.set_size_inches(6,3)
+fig.set_size_inches(6,2*len(args['graph']))
 ani.save(basename+'.gif', dpi=96, writer='imagemagick')
 #ani.save(basename+'.mp4', dpi=96, writer='ffmpeg')
