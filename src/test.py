@@ -61,7 +61,7 @@ parser_weights.add_argument('--normalize',type=str,default='True')
 argvv = [list(group) for is_key, group in itertools.groupby(sys.argv[1:], lambda x: x=='--') if not is_key]
 
 args={}
-args['data'] = parser.parse_args(['data','synthetic'])
+args['data'] = parser.parse_args(['data','regression'])
 args['model'] = parser.parse_args(['model'])
 args['common'] = parser.parse_args(['common'])
 args['graph'] = []
@@ -71,6 +71,8 @@ for argv in argvv:
         args['graph'].append(parser.parse_args(argv))
     else:
         args[argv[0]]=parser.parse_args(argv)
+
+datamodule = modules['data'][args['data'].subcommand]
 
 ########################################
 print('importing modules')
@@ -103,13 +105,16 @@ try:
         print('  processing range args')
 
         opts={}
+        stepargs={}
         title_step=[]
         for command in ['model','data','common']:
+            stepargs[command]={}
             param_names=filter(lambda x: x[0]!='_', dir(args[command]))
             for param_name in param_names:
                 param=eval('args["'+command+'"].'+param_name)
                 if isinstance(param,Interval):
                     res=param.start+step*(param.stop-param.start)/(args['common'].steps+1)
+                    stepargs[command][param_name]=res
                     opts[param_name]=res
                     if not param.is_trivial:
                         title_step.append(param_name+' = '+str(res))
@@ -124,16 +129,16 @@ try:
                                 all_trivial=False
                     if not all_trivial:
                         title_step.append(param_name+' = '+str(ress))
+                    stepargs[command][param_name] = ress
                     opts[param_name] = ress
                 else:
+                    stepargs[command][param_name] = eval('args[command].'+param_name)
                     opts[param_name] = eval('args[command].'+param_name)
         titles_step.append(' ; '.join(title_step))
 
         tf.set_random_seed(opts['seed_tf'])
         random.seed(opts['seed_np'])
         np.random.seed(opts['seed_np'])
-
-        data = modules['data']['synthetic'].Data(args['data'])
 
         ######################################## 
         print('  initializing graphs')
@@ -142,6 +147,16 @@ try:
             arg = args['graph'][i]
             g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(step),arg,opts)
             graphs[step].append(g)
+
+        ########################################
+        print('  generating data')
+
+        xmin=-500
+        xmax=500
+        xmargin=0.1*(xmax-xmin)/2
+        data = datamodule.Data(stepargs['data'])
+        #X=data.train.X
+        #Y=data.train.Y
 
         ########################################
         print('  setting tensorflow options')
@@ -162,18 +177,14 @@ try:
             print('  creating tensorflow graph')
 
             with tf.name_scope('inputs'):
-                x_ = tf.placeholder(tf.float32, [None,1])
+                x_ = tf.placeholder(tf.float32, [None,opts['numdim']])
                 y_ = tf.placeholder(tf.float32, [None,1])
-
-            with tf.name_scope('true'):
-                #y_true = modules['data']['synthetic'].target_true(x_)
-                y_true = data.target_true(x_)
 
             with tf.name_scope('model'):
                 bias=1.0
                 layer=0
                 y = x_
-                n0 = 1
+                n0 = opts['numdim']
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
@@ -194,10 +205,7 @@ try:
 
             with tf.name_scope('eval'):
                 loss = (y_-y)**2
-                loss_true = (y_true-y)**2
-
-                loss_ave = tf.reduce_sum(loss)/tf.cast(tf.size(x_),tf.float32)
-                loss_true_ave = tf.reduce_sum(loss_true)/tf.cast(tf.size(x_),tf.float32)
+                loss_ave = tf.reduce_sum(loss)/tf.cast(tf.size(x_),tf.float32) #FIXME: dimensions
 
             learningrate=10**opts['learningrate']
             if opts['trainop']=='sgd':
@@ -208,16 +216,6 @@ try:
                 train_op = tf.train.AdamOptimizer(learningrate).minimize(loss)
 
             sess = tf.Session()
-
-            ########################################
-            print('  generating data')
-
-            xmin=-500
-            xmax=500
-            xmargin=0.1*(xmax-xmin)/2
-            #ax_data_xs = np.linspace(xmin-xmargin,xmax+xmargin,steps).reshape(steps,1)
-
-            X,Y,Y_true = data.generate_data(opts)
 
             ########################################
             print('  training')
@@ -231,13 +229,13 @@ try:
                     #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
                 else:
                     rng_state = np.random.get_state()
-                    np.random.shuffle(X)
+                    np.random.shuffle(data.train.X)
                     np.random.set_state(rng_state)
-                    np.random.shuffle(Y)
+                    np.random.shuffle(data.train.Y)
                     for batchstart in range(0,opts['numdp'],opts['batchsize']):
                         batchstop=batchstart+opts['batchsize']
-                        Xbatch=X[batchstart:batchstop]
-                        Ybatch=Y[batchstart:batchstop]
+                        Xbatch=data.train.X[batchstart:batchstop]
+                        Ybatch=data.train.Y[batchstart:batchstop]
                         sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch})
                         #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
 

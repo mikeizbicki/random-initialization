@@ -10,8 +10,8 @@ class Graph:
         self.label=label
         self.args=args
         self.num_records=0
-        self.aves=[]
-        self.integrals=[]
+        self.trains=[]
+        self.tests=[]
 
     def get_num_frames(self):
         return 0
@@ -29,18 +29,19 @@ class Graph:
         if vars['epoch']%self.args.epoch_resolution==0:
             self.num_records+=1
 
-            dict_ave={vars['x_']:vars['X'],vars['y_']:vars['Y']}
-            res_ave,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_ave)
-            self.aves.append(res_ave)
+            data=vars['data']
+            dict_train={vars['x_']:data.train.X,vars['y_']:data.train.Y}
+            res_train,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_train)
+            self.trains.append(res_train)
 
-            dict_integral={vars['x_']:self.ax_data_xs2}
-            res_integral,=vars['sess'].run([vars['loss_true_ave']],feed_dict=dict_integral)
-            self.integrals.append(res_integral)
+            dict_test={vars['x_']:data.test.X,vars['y_']:data.test.Y}
+            res_test,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_test)
+            self.tests.append(res_test)
         
     def finalize(self,vars):
         self.subplot=self.fig.add_subplot(self.pos,label='loss:'+self.label)
-        self.subplot.plot(range(0,self.num_records),self.aves,':',color=(0,0,1))
-        self.subplot.plot(range(0,self.num_records),self.integrals,'-',color=(0,0,1))
+        self.subplot.plot(range(0,self.num_records),self.trains,':',color=(0,0,1))
+        self.subplot.plot(range(0,self.num_records),self.tests,'-',color=(0,0,1))
         self.subplot.set_yscale('log')
 
     def update(self,frame):

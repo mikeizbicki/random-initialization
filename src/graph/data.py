@@ -30,15 +30,16 @@ class Graph():
 
     def finalize(self,vars):
         import numpy as np
+        data=vars['data']
 
         if self.args.plot_data=='True':
             xresolution=self.args.xresolution
             xmin=self.args.xmin
             xmax=self.args.xmax
             ax_data_xs2 = np.linspace(xmin,xmax,xresolution).reshape(xresolution,1)
-            ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
-            self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)
-            self.subplot.plot(vars['X'],vars['Y'],'.',color=(0,0,1),zorder=100001)
+            #ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
+            #self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)
+            self.subplot.plot(data.train.X,data.train.Y,'.',color=(0,0,1),zorder=100001)
 
     def update(self,frame):
         import matplotlib.pyplot as plt
