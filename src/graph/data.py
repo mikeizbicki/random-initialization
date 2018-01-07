@@ -40,6 +40,7 @@ class Graph():
             #ax_data_ys2 = vars['sess'].run(vars['y_true'],feed_dict={vars['x_']:ax_data_xs2})
             #self.subplot.plot(ax_data_xs2,ax_data_ys2,'-',color=(0,0,1),zorder=100000)
             self.subplot.plot(data.train.X,data.train.Y,'.',color=(0,0,1),zorder=100001)
+            self.subplot.plot(data.test.X,data.test.Y,'.',color=(1,0,1),zorder=100001)
 
     def update(self,frame):
         import matplotlib.pyplot as plt

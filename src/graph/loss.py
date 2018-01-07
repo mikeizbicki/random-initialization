@@ -1,6 +1,7 @@
 def modify_parser(subparsers):
     parser = subparsers.add_parser('loss', help='plots the loss')
     parser.add_argument('--epoch_resolution',type=int,default=1)
+    parser.add_argument('--log_scale',type=bool,default=False)
 
 class Graph:
     def __init__(self,fig,pos,label,args,opts):
@@ -42,7 +43,11 @@ class Graph:
         self.subplot=self.fig.add_subplot(self.pos,label='loss:'+self.label)
         self.subplot.plot(range(0,self.num_records),self.trains,':',color=(0,0,1))
         self.subplot.plot(range(0,self.num_records),self.tests,'-',color=(0,0,1))
-        self.subplot.set_yscale('log')
+
+        if self.args.log_scale:
+            self.subplot.set_yscale('log')
+        else:
+            self.subplot.set_ylim([0,1])
 
     def update(self,frame):
         pass

@@ -46,15 +46,15 @@ parser_network = subparser_model.add_argument_group('network options')
 parser_network.add_argument('--epochs',type=int,default=100)
 parser_network.add_argument('--batchsize',type=interval(int),default=5)
 parser_network.add_argument('--learningrate',type=interval(float),default=-3)
-parser_network.add_argument('--trainop',choices=['sgd','momentum','adam'],default='adam')
+parser_network.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
 parser_network.add_argument('--layers',type=interval(int),nargs='*',default=[interval(int)(100)])
-parser_network.add_argument('--activation',choices=['relu','relu6','crelu','elu','softplus','softsign','sigmoid','tanh'],default='relu')
+parser_network.add_argument('--activation',choices=['none','relu','relu6','crelu','elu','softplus','softsign','sigmoid','tanh','logistic'],default='relu')
 parser_weights = subparser_model.add_argument_group('weight initialization')
 parser_weights.add_argument('--scale',type=interval(float),default=1.0)
 parser_weights.add_argument('--mean',type=interval(float),default=0.0)
 parser_weights.add_argument('--randomness',choices=['normal','uniform','laplace'],default='normal')
 parser_weights.add_argument('--abs',type=bool,default=False)
-parser_weights.add_argument('--normalize',type=str,default='True')
+parser_weights.add_argument('--normalize',type=str,default='False')
 
 ####################
 
@@ -162,7 +162,13 @@ try:
         print('  setting tensorflow options')
         with tf.Graph().as_default():
 
-            activation=eval('tf.nn.'+opts['activation'])
+            #tf.nn.logistic = lambda x: tf.log(1+tf.exp(-x))
+            tf.nn.logistic = lambda x: tf.log(1+tf.exp(-tf.maximum(-88.0,x)))
+
+            if opts['activation']=='none':
+                activation=tf.identity
+            else:
+                activation=eval('tf.nn.'+opts['activation'])
 
             def randomness(size,seed):
                 from stable_random import stable_random
@@ -177,43 +183,66 @@ try:
             print('  creating tensorflow graph')
 
             with tf.name_scope('inputs'):
-                x_ = tf.placeholder(tf.float32, [None,opts['numdim']])
-                y_ = tf.placeholder(tf.float32, [None,1])
+                x_ = tf.placeholder(tf.float32, [None,opts['dimX']])
+                y_ = tf.placeholder(tf.float32, [None,opts['dimY']])
 
             with tf.name_scope('model'):
                 bias=1.0
                 layer=0
                 y = x_
-                n0 = opts['numdim']
+                n0 = opts['dimX']
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
                         w = tf.Variable(randomness([n0,n],layer),name='w')
                         b = tf.Variable(randomness([1,n],layer+1),name='b')
-                        #b = tf.Variable(bias*tf.ones([1,n]),name='b')
-                        y = activation(tf.matmul(y,w)+b,name='y')
+                        y = activation(tf.matmul(y,w)+b)
                     n0 = n
                     if opts['activation']=='crelu':
                         n0*=2
                     layer+=1
 
                 with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,1],layer+1),name='w')
+                    w = tf.Variable(randomness([n0,opts['dimY']],layer+1),name='w')
                     #w = tf.ones([n0,1])
                     b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
 
             with tf.name_scope('eval'):
-                loss = (y_-y)**2
-                loss_ave = tf.reduce_sum(loss)/tf.cast(tf.size(x_),tf.float32) #FIXME: dimensions
+                #loss = (y_-y)**2
+                #loss = tf.losses.mean_squared_error(y_,y)
+                #loss = tf.losses.hinge_loss(y_,y)
+                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
+                loss_ave = loss
+                #loss_ave = tf.reduce_sum(loss)/tf.cast(tf.size(x_),tf.float32) #FIXME: dimensions
 
+            alpha_=tf.placeholder(tf.float32, [])
             learningrate=10**opts['learningrate']
-            if opts['trainop']=='sgd':
-                train_op = tf.train.GradientDescentOptimizer(learningrate).minimize(loss)
-            elif opts['trainop']=='momentum':
-                train_op = tf.train.MomentumOptimizer(learningrate, 0.9).minimize(loss)
-            elif opts['trainop']=='adam':
-                train_op = tf.train.AdamOptimizer(learningrate).minimize(loss)
+            if opts['optimizer']=='sgd':
+                optimizer = tf.train.GradientDescentOptimizer(alpha_)
+            elif opts['optimizer']=='momentum':
+                optimizer = tf.train.MomentumOptimizer(alpha_, 0.9)
+            elif opts['optimizer']=='adam':
+                optimizer = tf.train.AdamOptimizer(alpha_)
+            elif opts['optimizer']=='adagrad':
+                optimizer = tf.train.AdagradOptimizer(alpha_)
+            elif opts['optimizer']=='adagradda':
+                optimizer = tf.train.AdagradDAOptimizer(alpha_)
+            elif opts['optimizer']=='adadelta':
+                optimizer = tf.train.AdadeltaOptimizer(alpha_)
+            elif opts['optimizer']=='ftrl':
+                optimizer = tf.train.FtrlOptimizer(alpha_)
+            elif opts['optimizer']=='psgd':
+                optimizer = tf.train.ProximalOptimizer(alpha_)
+            elif opts['optimizer']=='padagrad':
+                optimizer = tf.train.ProximalAdagradOptimizer(alpha_)
+            elif opts['optimizer']=='rmsprop':
+                optimizer = tf.train.RMSPropOptimizer(alpha_)
+
+            grads_and_vars=optimizer.compute_gradients(loss)
+            grad_updates=optimizer.apply_gradients(grads_and_vars)
+            #train_op = optimizer.minimize(loss)
+            train_op = grad_updates
 
             sess = tf.Session()
 
@@ -226,18 +255,33 @@ try:
             for epoch in range(0,opts['epochs']+1):
                 if epoch==0:
                     sess.run(tf.global_variables_initializer())
-                    #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
+
                 else:
-                    rng_state = np.random.get_state()
-                    np.random.shuffle(data.train.X)
-                    np.random.set_state(rng_state)
-                    np.random.shuffle(data.train.Y)
+                    #rng_state = np.random.get_state()
+                    #np.random.shuffle(data.train.X)
+                    #np.random.set_state(rng_state)
+                    #np.random.shuffle(data.train.Y)
                     for batchstart in range(0,opts['numdp'],opts['batchsize']):
                         batchstop=batchstart+opts['batchsize']
                         Xbatch=data.train.X[batchstart:batchstop]
                         Ybatch=data.train.Y[batchstart:batchstop]
-                        sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch})
-                        #ax_data_ys = sess.run(y,feed_dict={x_:ax_data_xs})
+
+                        if False:
+                            print('-----')
+                            print('batchstart=',batchstart,'; batchstop=',batchstop)
+                            print('Xbatch=',Xbatch)
+                            print('Ybatch=',Ybatch)
+                            feed_dict={x_:data.train.X[0:1],y_:data.train.Y[0:1]}
+                            for gv in grads_and_vars:
+                                val=sess.run(gv[0],feed_dict=feed_dict)
+                                print('grad:',gv[1],'=',val)
+                            print('loss=',sess.run(loss,feed_dict=feed_dict))
+                            print('w=',sess.run(w))
+                            print('b=',sess.run(b))
+                            sys.exit(1)
+
+                        stepsize=learningrate#/math.sqrt(epoch)
+                        sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch,alpha_:stepsize})
 
                 if epoch!=0:
                     print('\033[F',end='')
