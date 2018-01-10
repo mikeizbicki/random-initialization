@@ -29,10 +29,11 @@ for loader, name, is_pkg in pkgutil.walk_packages(data.__path__):
     modules['data'][name].modify_parser(subparsers_data)
 
 subparser_common = subparsers.add_parser('common')
-subparser_common.add_argument('--steps',type=int,default=0)
+subparser_common.add_argument('--partitions',type=int,default=0)
 subparser_common.add_argument('--seed_tf',type=int,default=0)
 subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
+subparser_common.add_argument('--log_dir',type=str,default='log')
 
 import graph
 subparser_graph = subparsers.add_parser('graph')
@@ -97,47 +98,47 @@ gs = gridspec.GridSpec(len(args['graph']),1)
 
 graphs={}
 
-titles_step=[]
+titles_partition=[]
 
 ################################################################################
 try:
-    for step in range(0,args['common'].steps+1):
-        print('step '+str(step))
+    for partition in range(0,args['common'].partitions+1):
+        print('partition '+str(partition))
 
         ########################################
         print('  processing range args')
 
         opts={}
-        stepargs={}
-        title_step=[]
+        partitionargs={}
+        title_partition=[]
         for command in ['model','data','common']:
-            stepargs[command]={}
+            partitionargs[command]={}
             param_names=filter(lambda x: x[0]!='_', dir(args[command]))
             for param_name in param_names:
                 param=eval('args["'+command+'"].'+param_name)
                 if isinstance(param,Interval):
-                    res=param.start+step*(param.stop-param.start)/(args['common'].steps+1)
-                    stepargs[command][param_name]=res
+                    res=param.start+partition*(param.stop-param.start)/(args['common'].partitions+1)
+                    partitionargs[command][param_name]=res
                     opts[param_name]=res
                     if not param.is_trivial:
-                        title_step.append(param_name+' = '+str(res))
+                        title_partition.append(param_name+' = '+str(res))
                 elif type(param) is list:
                     ress=[]
                     all_trivial=True
                     for p in param:
                         if isinstance(p,Interval):
-                            res=p.start+step*(p.stop-p.start)/(args['common'].steps+1)
+                            res=p.start+partition*(p.stop-p.start)/(args['common'].partitions+1)
                             ress.append(res)
                             if not p.is_trivial:
                                 all_trivial=False
                     if not all_trivial:
-                        title_step.append(param_name+' = '+str(ress))
-                    stepargs[command][param_name] = ress
+                        title_partition.append(param_name+' = '+str(ress))
+                    partitionargs[command][param_name] = ress
                     opts[param_name] = ress
                 else:
-                    stepargs[command][param_name] = eval('args[command].'+param_name)
+                    partitionargs[command][param_name] = eval('args[command].'+param_name)
                     opts[param_name] = eval('args[command].'+param_name)
-        titles_step.append(' ; '.join(title_step))
+        titles_partition.append(' ; '.join(title_partition))
 
         tf.set_random_seed(opts['seed_tf'])
         random.seed(opts['seed_np'])
@@ -145,11 +146,11 @@ try:
 
         ######################################## 
         print('  initializing graphs')
-        graphs[step]=[]
+        graphs[partition]=[]
         for i in range(0,len(args['graph'])):
             arg = args['graph'][i]
-            g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(step),arg,opts)
-            graphs[step].append(g)
+            g = modules['graph'][arg.subcommand].Graph(fig,gs[i],str(partition),arg,opts)
+            graphs[partition].append(g)
 
         ########################################
         print('  generating data')
@@ -157,7 +158,7 @@ try:
         xmin=-500
         xmax=500
         xmargin=0.1*(xmax-xmin)/2
-        data = datamodule.Data(stepargs['data'])
+        data = datamodule.Data(partitionargs['data'])
 
         ########################################
         print('  setting tensorflow options')
@@ -181,7 +182,7 @@ try:
                 return opts['mean']+opts['scale']*r
 
             ########################################
-            print('  creating tensorflow graph')
+            print('  creating tensorflow model')
 
             with tf.name_scope('inputs'):
                 #x_ = tf.train.shuffle_batch(
@@ -192,14 +193,14 @@ try:
                         #num_threads=1, 
                         #seed=opts['seed_tf'], 
                         #enqueue_many=True)
-                x_ = tf.placeholder(tf.float32, [None,opts['dimX']])
-                y_ = tf.placeholder(tf.float32, [None,opts['dimY']])
+                x_ = tf.placeholder(tf.float32, [None,data.dimX])
+                y_ = tf.placeholder(tf.float32, [None,data.dimY])
 
             with tf.name_scope('model'):
                 bias=1.0
                 layer=0
                 y = x_
-                n0 = opts['dimX']
+                n0 = data.dimX
                 for n in opts['layers']:
                     print('    layer'+str(layer)+' nodes: '+str(n))
                     with tf.name_scope('layer'+str(layer)):
@@ -212,16 +213,26 @@ try:
                     layer+=1
 
                 with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,opts['dimY']],layer+1),name='w')
+                    w = tf.Variable(randomness([n0,data.dimY],layer+1),name='w')
                     b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
 
-            with tf.name_scope('eval'):
-                if opts['loss']=='xentropy':
-                    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
-                elif opts['loss']=='mse':
-                    loss = tf.losses.mean_squared_error(y_,y)
-                #loss_ave = loss
+            with tf.name_scope('losses'):
+                xentropy = tf.reduce_mean(
+                            tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y),
+                            name='xentropy')
+                tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
+
+                mse = tf.losses.mean_squared_error(y_,y)
+                
+                results = tf.cast(tf.equal(tf.argmax(y,axis=1),tf.argmax(y_,axis=1)),tf.float32)
+                accuracy = tf.reduce_mean(results,name='accuracy')
+                tf.add_to_collection(tf.GraphKeys.LOSSES,accuracy)
+
+                loss = eval(opts['loss'])
+
+            ######################################## 
+            print('  creating tensorflow optimizer')
 
             alpha_=tf.placeholder(tf.float32, [])
             learningrate=10**opts['learningrate']
@@ -271,12 +282,38 @@ try:
             grad_updates=optimizer.apply_gradients(zip(gradients,variables))
             train_op = tf.group(grad_updates,update_clipper)
 
+            ######################################## 
+            print('  creating tensorflow session')
+
+            for graph in graphs[partition]:
+                graph.add_summary()
+
+            merged = tf.summary.merge_all()
             sess = tf.Session()
+
+            import hashlib
+            import shutil
+            optshash=hashlib.sha224(str(opts)).hexdigest()
+            dirname = 'optshash='+optshash
+            log_dir = args['common'].log_dir+'/'+dirname
+            shutil.rmtree(log_dir,ignore_errors=True)
+            writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
+            writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
+            print('    log_dir = '+log_dir)
+
+            symlink=args['common'].log_dir+'/recent'
+            try:
+                os.remove(symlink)
+            except:
+                pass
+            os.symlink(dirname,symlink)
+            print('    symlink = '+symlink)
 
             ########################################
             print('  training')
 
-            for graph in graphs[step]:
+            step=0
+            for graph in graphs[partition]:
                 graph.init_step(dict(globals(),**locals()))
 
             for epoch in range(0,opts['epochs']+1):
@@ -288,7 +325,8 @@ try:
                     np.random.shuffle(data.train.X)
                     np.random.set_state(rng_state)
                     np.random.shuffle(data.train.Y)
-                    for batchstart in range(0,opts['numdp'],opts['batchsize']):
+                    for batchstart in range(0,data.train.numdp,opts['batchsize']):
+                        step+=1
                         batchstop=batchstart+opts['batchsize']
                         Xbatch=data.train.X[batchstart:batchstop]
                         Ybatch=data.train.Y[batchstart:batchstop]
@@ -307,20 +345,27 @@ try:
                             print('b=',sess.run(b))
                             sys.exit(1)
 
-                        stepsize=learningrate
+                        partitionsize=learningrate
                         if not opts['nodecay']:
-                            stepsize/=math.sqrt(epoch)
+                            partitionsize/=math.sqrt(epoch)
 
-                        sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch,alpha_:stepsize})
+                        feed_dict={x_:Xbatch,y_:Ybatch,alpha_:partitionsize}
+                        summary,_=sess.run([merged,train_op],feed_dict=feed_dict)
+
+                        writer_train.add_summary(summary, step)
 
                 if epoch!=0:
                     print('\033[F',end='')
                 print('  epoch: %d'%epoch)
 
-                for graph in graphs[step]:
+                feed_dict={x_:data.test.X,y_:data.test.Y}
+                summary=sess.run(merged,feed_dict=feed_dict)
+                writer_test.add_summary(summary, step)
+
+                for graph in graphs[partition]:
                     graph.record_epoch(dict(globals(),**locals()))
 
-            for graph in graphs[step]:
+            for graph in graphs[partition]:
                 graph.finalize(dict(globals(),**locals()))
 
 except KeyboardInterrupt:
@@ -333,7 +378,7 @@ epochframes=0
 for graph in graphs[0]:
     epochframes=max(1,epochframes,graph.get_num_frames())
 
-if args['common'].steps==0:
+if args['common'].partitions==0:
     def update(frame):
         if frame!=0:
             print('\033[F',end='')
@@ -343,10 +388,10 @@ if args['common'].steps==0:
     ani = FuncAnimation(fig, update, frames=epochframes, init_func=lambda:[])
 
 else:
-    print('  rendering step frames')
-    for step in range(0,args['common'].steps+1):
-        print('    step: ',step)
-        for graph in graphs[step]:
+    print('  rendering partition frames')
+    for partition in range(0,args['common'].partitions+1):
+        print('    partition: ',partition)
+        for graph in graphs[partition]:
             for frame in range(0,epochframes):
                 graph.update(frame)
 
@@ -355,12 +400,12 @@ else:
         if frame!=0:
             print('\033[F',end='')
         print('  animating frame '+str(frame))
-        plt.suptitle(titles_step[frame])
-        print(titles_step[frame])
-        for step in range(0,args['common'].steps+1):
-            for graph in graphs[step]:
-                graph.set_visible(step==frame)
-    ani = FuncAnimation(fig, update, frames=args['common'].steps+1, init_func=lambda:[])
+        plt.suptitle(titles_partition[frame])
+        print(titles_partition[frame])
+        for partition in range(0,args['common'].partitions+1):
+            for graph in graphs[partition]:
+                graph.set_visible(partition==frame)
+    ani = FuncAnimation(fig, update, frames=args['common'].partitions+1, init_func=lambda:[])
 
 #basename=' '.join(sys.argv[1:])
 basename='test'

@@ -17,6 +17,13 @@ class Graph:
     def get_num_frames(self):
         return 0
 
+    def add_summary(self, graph=None):
+        import tensorflow as tf
+        if graph==None:
+            graph=tf.get_default_graph()
+        for loss in graph.get_collection(tf.GraphKeys.LOSSES):
+            tf.summary.scalar(loss.name,loss)
+
     def init_step(self,vars):
         import numpy as np
         xmin=vars['xmin']

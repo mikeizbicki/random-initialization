@@ -21,8 +21,8 @@ class Data:
         import random
 
         self.args=args
-        dimX=args['dimX']
-        dimY=args['dimY']
+        self.dimX=args['dimX']; dimX=args['dimX']
+        self.dimY=args['dimY']; dimY=args['dimY']
         seed=args['seed']
 
         random.seed(seed)
@@ -33,6 +33,7 @@ class Data:
             def __init__(self,numdp):
                 self.Y = np.random.multinomial(1,[1/float(dimY)]*dimY,size=[numdp])
                 self.X = np.zeros([numdp,dimX])
+                self.numdp=args['numdp']
                 for i in range(0,numdp):
                     Yval = np.nonzero(self.Y[i])[0][0]
                     self.X[i,:] = mu[:,Yval] + np.random.normal(size=[1,dimX])
