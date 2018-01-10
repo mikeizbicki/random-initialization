@@ -6,7 +6,7 @@ def modify_parser(subparsers):
     parser.add_argument('--variance',type=interval(float),default=0.1)
     parser.add_argument('--numdp_test',type=interval(int),default=100)
     parser.add_argument('--numdp',type=interval(int),default=30)
-    parser.add_argument('--dimX',type=interval(int),default=1)
+    parser.add_argument('--dimX',type=interval(int),default=[1],nargs='*')
     parser.add_argument('--dimY',type=interval(int),default=1)
     parser.add_argument('--target',type=str,default='sin(x)')
     parser.add_argument('--seed',type=int,default=0)

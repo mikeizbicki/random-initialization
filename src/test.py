@@ -18,15 +18,30 @@ parser=argparse.ArgumentParser()
 subparsers = parser.add_subparsers(dest='command')
 
 modules={}
-modules['data']={}
-modules['graph']={}
 
+modules['data']={}
 import data
 subparser_data = subparsers.add_parser('data')
 subparsers_data = subparser_data.add_subparsers(dest='subcommand')
 for loader, name, is_pkg in pkgutil.walk_packages(data.__path__):
     modules['data'][name]=loader.find_module(name).load_module(name)
     modules['data'][name].modify_parser(subparsers_data)
+
+modules['graph']={}
+import graph
+subparser_graph = subparsers.add_parser('graph')
+subparsers_graph = subparser_graph.add_subparsers(dest='subcommand')
+for loader, name, is_pkg in pkgutil.walk_packages(graph.__path__):
+    modules['graph'][name]=loader.find_module(name).load_module(name)
+    modules['graph'][name].modify_parser(subparsers_graph)
+
+modules['model']={}
+import model
+subparser_model = subparsers.add_parser('model')
+subparsers_model = subparser_model.add_subparsers(dest='subcommand')
+for loader, name, is_pkg in pkgutil.walk_packages(model.__path__):
+    modules['model'][name]=loader.find_module(name).load_module(name)
+    modules['model'][name].modify_parser(subparsers_model)
 
 subparser_common = subparsers.add_parser('common')
 subparser_common.add_argument('--partitions',type=int,default=0)
@@ -35,30 +50,14 @@ subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
 subparser_common.add_argument('--log_dir',type=str,default='log')
 
-import graph
-subparser_graph = subparsers.add_parser('graph')
-subparsers_graph = subparser_graph.add_subparsers(dest='subcommand')
-for loader, name, is_pkg in pkgutil.walk_packages(graph.__path__):
-    modules['graph'][name]=loader.find_module(name).load_module(name)
-    modules['graph'][name].modify_parser(subparsers_graph)
-
-subparser_model = subparsers.add_parser('model')
-parser_network = subparser_model.add_argument_group('network options')
-parser_network.add_argument('--epochs',type=int,default=100)
-parser_network.add_argument('--batchsize',type=interval(int),default=5)
-parser_network.add_argument('--learningrate',type=interval(float),default=-3)
-parser_network.add_argument('--nodecay',action='store_true')
-parser_network.add_argument('--robust',action='store_true')
-parser_network.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
-parser_network.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
-parser_network.add_argument('--layers',type=interval(int),nargs='*',default=[interval(int)(100)])
-parser_network.add_argument('--activation',choices=['none','relu','relu6','crelu','elu','softplus','softsign','sigmoid','tanh','logistic'],default='relu')
-parser_weights = subparser_model.add_argument_group('weight initialization')
-parser_weights.add_argument('--scale',type=interval(float),default=1.0)
-parser_weights.add_argument('--mean',type=interval(float),default=0.0)
-parser_weights.add_argument('--randomness',choices=['normal','uniform','laplace'],default='normal')
-parser_weights.add_argument('--abs',type=bool,default=False)
-parser_weights.add_argument('--normalize',type=str,default='False')
+subparser_optimizer = subparser_common.add_argument_group('optimizer options')
+subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
+subparser_optimizer.add_argument('--nodecay',action='store_true')
+subparser_optimizer.add_argument('--robust',action='store_true')
+subparser_optimizer.add_argument('--epochs',type=int,default=100)
+subparser_optimizer.add_argument('--batchsize',type=interval(int),default=5)
+subparser_optimizer.add_argument('--learningrate',type=interval(float),default=-3)
+subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
 
 ####################
 
@@ -66,7 +65,7 @@ argvv = [list(group) for is_key, group in itertools.groupby(sys.argv[1:], lambda
 
 args={}
 args['data'] = parser.parse_args(['data','regression'])
-args['model'] = parser.parse_args(['model'])
+args['model'] = parser.parse_args(['model','custom'])
 args['common'] = parser.parse_args(['common'])
 args['graph'] = []
 
@@ -76,7 +75,8 @@ for argv in argvv:
     else:
         args[argv[0]]=parser.parse_args(argv)
 
-datamodule = modules['data'][args['data'].subcommand]
+module_data = modules['data'][args['data'].subcommand]
+module_model = modules['model'][args['model'].subcommand]
 
 ########################################
 print('importing modules')
@@ -158,28 +158,11 @@ try:
         xmin=-500
         xmax=500
         xmargin=0.1*(xmax-xmin)/2
-        data = datamodule.Data(partitionargs['data'])
+        data = module_data.Data(partitionargs['data'])
 
         ########################################
         print('  setting tensorflow options')
         with tf.Graph().as_default():
-
-            #tf.nn.logistic = lambda x: tf.log(1+tf.exp(-x))
-            tf.nn.logistic = lambda x: tf.log(1+tf.exp(-tf.maximum(-88.0,x)))
-
-            if opts['activation']=='none':
-                activation=tf.identity
-            else:
-                activation=eval('tf.nn.'+opts['activation'])
-
-            def randomness(size,seed):
-                from stable_random import stable_random
-                r=stable_random(size,opts['seed_np']+seed,dist=opts['randomness']).astype(np.float32)
-                if opts['normalize']=='True':
-                    r/=np.amax(np.abs(r))
-                if opts['abs']:
-                    r=np.abs(r)
-                return opts['mean']+opts['scale']*r
 
             ########################################
             print('  creating tensorflow model')
@@ -193,29 +176,10 @@ try:
                         #num_threads=1, 
                         #seed=opts['seed_tf'], 
                         #enqueue_many=True)
-                x_ = tf.placeholder(tf.float32, [None,data.dimX])
+                x_ = tf.placeholder(tf.float32, [None]+data.dimX)
                 y_ = tf.placeholder(tf.float32, [None,data.dimY])
 
-            with tf.name_scope('model'):
-                bias=1.0
-                layer=0
-                y = x_
-                n0 = data.dimX
-                for n in opts['layers']:
-                    print('    layer'+str(layer)+' nodes: '+str(n))
-                    with tf.name_scope('layer'+str(layer)):
-                        w = tf.Variable(randomness([n0,n],layer),name='w')
-                        b = tf.Variable(randomness([1,n],layer+1),name='b')
-                        y = activation(tf.matmul(y,w)+b)
-                    n0 = n
-                    if opts['activation']=='crelu':
-                        n0*=2
-                    layer+=1
-
-                with tf.name_scope('layer_final'):
-                    w = tf.Variable(randomness([n0,data.dimY],layer+1),name='w')
-                    b = tf.Variable(bias,name='b')
-                    y = tf.matmul(y,w)+b
+            y = module_model.inference(x_,data,opts)
 
             with tf.name_scope('losses'):
                 xentropy = tf.reduce_mean(
@@ -326,6 +290,9 @@ try:
                     np.random.set_state(rng_state)
                     np.random.shuffle(data.train.Y)
                     for batchstart in range(0,data.train.numdp,opts['batchsize']):
+                        if batchstart!=0:
+                            print('\033[F',end='')
+                        print('    step=',step,'    ')
                         step+=1
                         batchstop=batchstart+opts['batchsize']
                         Xbatch=data.train.X[batchstart:batchstop]
@@ -356,7 +323,8 @@ try:
 
                 if epoch!=0:
                     print('\033[F',end='')
-                print('  epoch: %d'%epoch)
+                    print('\033[F',end='')
+                print('  epoch: %d     '%epoch)
 
                 feed_dict={x_:data.test.X,y_:data.test.Y}
                 summary=sess.run(merged,feed_dict=feed_dict)
@@ -372,7 +340,7 @@ except KeyboardInterrupt:
     print('>>>>>>>>>>>>>> KeyboardInterupt <<<<<<<<<<<<<<')
 
 ################################################################################
-print('visualizing')
+print('visualizing          ')
 
 epochframes=0
 for graph in graphs[0]:

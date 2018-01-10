@@ -6,7 +6,7 @@ def modify_parser(subparsers):
     parser.add_argument('--variance',type=interval(float),default=1)
     parser.add_argument('--numdp',type=interval(int),default=100)
     parser.add_argument('--numdp_test',type=interval(int),default=100)
-    parser.add_argument('--dimX',type=interval(int),default=100)
+    parser.add_argument('--dimX',type=interval(int),default=100,nargs='*')
     parser.add_argument('--dimY',type=interval(int),default=2)
     
     parser.add_argument('--noise',type=interval(float),default=0)
@@ -27,18 +27,18 @@ class Data:
 
         random.seed(seed)
         np.random.seed(seed)
-        mu = args['variance']*np.random.normal(size=[dimX,dimY])
+        mu = args['variance']*np.random.normal(size=dimX+[dimY])
 
         class Dataset:
             def __init__(self,numdp):
                 self.Y = np.random.multinomial(1,[1/float(dimY)]*dimY,size=[numdp])
-                self.X = np.zeros([numdp,dimX])
+                self.X = np.zeros([numdp]+dimX)
                 self.numdp=args['numdp']
                 for i in range(0,numdp):
                     Yval = np.nonzero(self.Y[i])[0][0]
-                    self.X[i,:] = mu[:,Yval] + np.random.normal(size=[1,dimX])
+                    self.X[i,...] = mu[...,Yval] + np.random.normal(size=[1]+dimX)
 
         self.train=Dataset(args['numdp'])
         self.test=Dataset(args['numdp_test'])
 
-        self.train.X[0,:] = np.ones([1,dimX])*args['noise']
+        self.train.X[0,...] = np.ones([1]+dimX)*args['noise']
