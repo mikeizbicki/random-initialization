@@ -1,7 +1,7 @@
 def modify_parser(subparsers):
     parser = subparsers.add_parser('loss', help='plots the loss')
     parser.add_argument('--epoch_resolution',type=int,default=1)
-    parser.add_argument('--log_scale',type=bool,default=False)
+    parser.add_argument('--log_scale',action='store_true')
 
 class Graph:
     def __init__(self,fig,pos,label,args,opts):
@@ -32,11 +32,11 @@ class Graph:
 
             data=vars['data']
             dict_train={vars['x_']:data.train.X,vars['y_']:data.train.Y}
-            res_train,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_train)
+            res_train,=vars['sess'].run([vars['loss']],feed_dict=dict_train)
             self.trains.append(res_train)
 
             dict_test={vars['x_']:data.test.X,vars['y_']:data.test.Y}
-            res_test,=vars['sess'].run([vars['loss_ave']],feed_dict=dict_test)
+            res_test,=vars['sess'].run([vars['loss']],feed_dict=dict_test)
             self.tests.append(res_test)
         
     def finalize(self,vars):

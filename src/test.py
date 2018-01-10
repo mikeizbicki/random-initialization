@@ -46,6 +46,9 @@ parser_network = subparser_model.add_argument_group('network options')
 parser_network.add_argument('--epochs',type=int,default=100)
 parser_network.add_argument('--batchsize',type=interval(int),default=5)
 parser_network.add_argument('--learningrate',type=interval(float),default=-3)
+parser_network.add_argument('--nodecay',action='store_true')
+parser_network.add_argument('--robust',action='store_true')
+parser_network.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
 parser_network.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
 parser_network.add_argument('--layers',type=interval(int),nargs='*',default=[interval(int)(100)])
 parser_network.add_argument('--activation',choices=['none','relu','relu6','crelu','elu','softplus','softsign','sigmoid','tanh','logistic'],default='relu')
@@ -155,8 +158,6 @@ try:
         xmax=500
         xmargin=0.1*(xmax-xmin)/2
         data = datamodule.Data(stepargs['data'])
-        #X=data.train.X
-        #Y=data.train.Y
 
         ########################################
         print('  setting tensorflow options')
@@ -183,6 +184,14 @@ try:
             print('  creating tensorflow graph')
 
             with tf.name_scope('inputs'):
+                #x_ = tf.train.shuffle_batch(
+                        #[tf.cast(tf.constant(data.train.X),tf.float32)],
+                        #batch_size=opts['batchsize'],
+                        #capacity=opts['numdp'],
+                        #min_after_dequeue=0, 
+                        #num_threads=1, 
+                        #seed=opts['seed_tf'], 
+                        #enqueue_many=True)
                 x_ = tf.placeholder(tf.float32, [None,opts['dimX']])
                 y_ = tf.placeholder(tf.float32, [None,opts['dimY']])
 
@@ -204,17 +213,15 @@ try:
 
                 with tf.name_scope('layer_final'):
                     w = tf.Variable(randomness([n0,opts['dimY']],layer+1),name='w')
-                    #w = tf.ones([n0,1])
                     b = tf.Variable(bias,name='b')
                     y = tf.matmul(y,w)+b
 
             with tf.name_scope('eval'):
-                #loss = (y_-y)**2
-                #loss = tf.losses.mean_squared_error(y_,y)
-                #loss = tf.losses.hinge_loss(y_,y)
-                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
-                loss_ave = loss
-                #loss_ave = tf.reduce_sum(loss)/tf.cast(tf.size(x_),tf.float32) #FIXME: dimensions
+                if opts['loss']=='xentropy':
+                    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
+                elif opts['loss']=='mse':
+                    loss = tf.losses.mean_squared_error(y_,y)
+                #loss_ave = loss
 
             alpha_=tf.placeholder(tf.float32, [])
             learningrate=10**opts['learningrate']
@@ -240,9 +247,29 @@ try:
                 optimizer = tf.train.RMSPropOptimizer(alpha_)
 
             grads_and_vars=optimizer.compute_gradients(loss)
-            grad_updates=optimizer.apply_gradients(grads_and_vars)
-            #train_op = optimizer.minimize(loss)
-            train_op = grad_updates
+            gradients, variables = zip(*optimizer.compute_gradients(loss))
+            update_clipper = tf.group()
+            if opts['robust']:
+                with tf.name_scope('clipper'):
+                    ave_alpha = 0.9
+                    var_alpha = 0.9
+                    global_norm = tf.global_norm(gradients)
+                    ave = tf.Variable(0.0,trainable=False)
+                    var = tf.Variable(1.0,trainable=False)
+                    #global_norm = tf.Print(global_norm,[ave,var,global_norm])
+                    ave_unbiased = ave/(1-ave_alpha)
+                    var_unbiased = var/(1-var_alpha)
+                    clip = ave_unbiased+tf.sqrt(var_unbiased) #+1e-6
+                    #ave2 = ave_alpha*ave + (1-ave_alpha)*global_norm 
+                    #var2 = var_alpha*var + (1-var_alpha)*global_norm**2
+                    ave2 = ave_alpha*ave + (1-ave_alpha)*tf.minimum(global_norm,clip)
+                    var2 = var_alpha*var + (1-var_alpha)*tf.minimum(global_norm,clip)**2
+                    gradients, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
+                    ave_update = tf.assign(ave,ave2)
+                    var_update = tf.assign(var,var2)
+                    update_clipper = tf.group(ave_update,var_update)
+            grad_updates=optimizer.apply_gradients(zip(gradients,variables))
+            train_op = tf.group(grad_updates,update_clipper)
 
             sess = tf.Session()
 
@@ -257,10 +284,10 @@ try:
                     sess.run(tf.global_variables_initializer())
 
                 else:
-                    #rng_state = np.random.get_state()
-                    #np.random.shuffle(data.train.X)
-                    #np.random.set_state(rng_state)
-                    #np.random.shuffle(data.train.Y)
+                    rng_state = np.random.get_state()
+                    np.random.shuffle(data.train.X)
+                    np.random.set_state(rng_state)
+                    np.random.shuffle(data.train.Y)
                     for batchstart in range(0,opts['numdp'],opts['batchsize']):
                         batchstop=batchstart+opts['batchsize']
                         Xbatch=data.train.X[batchstart:batchstop]
@@ -270,7 +297,7 @@ try:
                             print('-----')
                             print('batchstart=',batchstart,'; batchstop=',batchstop)
                             print('Xbatch=',Xbatch)
-                            print('Ybatch=',Ybatch)
+                            #print('Ybatch=',Ybatch)
                             feed_dict={x_:data.train.X[0:1],y_:data.train.Y[0:1]}
                             for gv in grads_and_vars:
                                 val=sess.run(gv[0],feed_dict=feed_dict)
@@ -280,7 +307,10 @@ try:
                             print('b=',sess.run(b))
                             sys.exit(1)
 
-                        stepsize=learningrate#/math.sqrt(epoch)
+                        stepsize=learningrate
+                        if not opts['nodecay']:
+                            stepsize/=math.sqrt(epoch)
+
                         sess.run(train_op,feed_dict={x_:Xbatch,y_:Ybatch,alpha_:stepsize})
 
                 if epoch!=0:
