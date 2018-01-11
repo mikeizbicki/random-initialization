@@ -144,7 +144,7 @@ try:
         random.seed(opts['seed_np'])
         np.random.seed(opts['seed_np'])
 
-        ######################################## 
+        ########################################
         print('  initializing graphs')
         graphs[partition]=[]
         for i in range(0,len(args['graph'])):
@@ -172,9 +172,9 @@ try:
                         #[tf.cast(tf.constant(data.train.X),tf.float32)],
                         #batch_size=opts['batchsize'],
                         #capacity=opts['numdp'],
-                        #min_after_dequeue=0, 
-                        #num_threads=1, 
-                        #seed=opts['seed_tf'], 
+                        #min_after_dequeue=0,
+                        #num_threads=1,
+                        #seed=opts['seed_tf'],
                         #enqueue_many=True)
                 x_ = tf.placeholder(tf.float32, [None]+data.dimX)
                 y_ = tf.placeholder(tf.float32, [None,data.dimY])
@@ -188,14 +188,14 @@ try:
                 tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
 
                 mse = tf.losses.mean_squared_error(y_,y)
-                
+
                 results = tf.cast(tf.equal(tf.argmax(y,axis=1),tf.argmax(y_,axis=1)),tf.float32)
                 accuracy = tf.reduce_mean(results,name='accuracy')
                 tf.add_to_collection(tf.GraphKeys.LOSSES,accuracy)
 
                 loss = eval(opts['loss'])
 
-            ######################################## 
+            ########################################
             print('  creating tensorflow optimizer')
 
             alpha_=tf.placeholder(tf.float32, [])
@@ -235,7 +235,7 @@ try:
                     ave_unbiased = ave/(1-ave_alpha)
                     var_unbiased = var/(1-var_alpha)
                     clip = ave_unbiased+tf.sqrt(var_unbiased) #+1e-6
-                    #ave2 = ave_alpha*ave + (1-ave_alpha)*global_norm 
+                    #ave2 = ave_alpha*ave + (1-ave_alpha)*global_norm
                     #var2 = var_alpha*var + (1-var_alpha)*global_norm**2
                     ave2 = ave_alpha*ave + (1-ave_alpha)*tf.minimum(global_norm,clip)
                     var2 = var_alpha*var + (1-var_alpha)*tf.minimum(global_norm,clip)**2
@@ -246,7 +246,7 @@ try:
             grad_updates=optimizer.apply_gradients(zip(gradients,variables))
             train_op = tf.group(grad_updates,update_clipper)
 
-            ######################################## 
+            ########################################
             print('  creating tensorflow session')
 
             for graph in graphs[partition]:
@@ -272,6 +272,9 @@ try:
                 pass
             os.symlink(dirname,symlink)
             print('    symlink = '+symlink)
+
+            with open(log_dir+'/opts.txt','w') as f:
+                f.write('opts = '+str(opts))
 
             ########################################
             print('  training')
