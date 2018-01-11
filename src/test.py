@@ -53,7 +53,9 @@ subparser_common.add_argument('--log_dir',type=str,default='log')
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
 subparser_optimizer.add_argument('--nodecay',action='store_true')
-subparser_optimizer.add_argument('--robust',action='store_true')
+subparser_optimizer.add_argument('--robust',choices=['none','global','local'])
+subparser_optimizer.add_argument('--m_alpha',type=interval(float),default=0.5)
+subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.5)
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batchsize',type=interval(int),default=5)
 subparser_optimizer.add_argument('--learningrate',type=interval(float),default=-3)
@@ -221,31 +223,58 @@ try:
             elif opts['optimizer']=='rmsprop':
                 optimizer = tf.train.RMSPropOptimizer(alpha_)
 
-            grads_and_vars=optimizer.compute_gradients(loss)
-            gradients, variables = zip(*optimizer.compute_gradients(loss))
-            update_clipper = tf.group()
-            if opts['robust']:
-                with tf.name_scope('clipper'):
-                    ave_alpha = 0.9
-                    var_alpha = 0.9
-                    ave_init=0.0
-                    var_init=1.0
+            with tf.name_scope('robust'):
+                grads_and_vars=optimizer.compute_gradients(loss)
+                gradients, variables = zip(*grads_and_vars)
+
+                m_alpha = opts['m_alpha']
+                v_alpha = opts['v_alpha']
+                m_init=0.0
+                v_init=1.0
+
+                if opts['robust']=='none':
+                    gradients2=gradients
+                    update_clipper = tf.group()
+
+                elif opts['robust']=='global':
                     global_norm = tf.global_norm(gradients)
-                    ave = tf.Variable(ave_init,trainable=False)
-                    var = tf.Variable(var_init,trainable=False)
-                    #global_norm = tf.Print(global_norm,[ave,var,global_norm])
-                    ave_unbiased = ave/(1.0-ave_alpha)
-                    var_unbiased = var/(1.0-var_alpha)
-                    clip = ave_unbiased+tf.sqrt(var_unbiased) #+1e-6
-                    #ave2 = ave_alpha*ave + (1-ave_alpha)*global_norm
-                    #var2 = var_alpha*var + (1-var_alpha)*global_norm**2
-                    ave2 = ave_alpha*ave + (1.0-ave_alpha)*tf.minimum(global_norm,clip)
-                    var2 = var_alpha*var + (1.0-var_alpha)*tf.minimum(global_norm,clip)**2
-                    gradients, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
-                    ave_update = tf.assign(ave,ave2)
-                    var_update = tf.assign(var,var2)
-                    update_clipper = tf.group(ave_update,var_update)
-            grad_updates=optimizer.apply_gradients(zip(gradients,variables))
+                    m = tf.Variable(m_init,trainable=False)
+                    v = tf.Variable(v_init,trainable=False)
+                    #global_norm = tf.Print(global_norm,[m,v,global_norm])
+                    m_unbiased = m/(1.0-m_alpha)
+                    v_unbiased = v/(1.0-v_alpha)
+                    clip = m_unbiased+tf.sqrt(v_unbiased) #+1e-6
+                    #m2 = m_alpha*m + (1-m_alpha)*global_norm
+                    #v2 = v_alpha*v + (1-v_alpha)*global_norm**2
+                    m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
+                    v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(global_norm,clip)**2
+                    gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
+                    m_update = tf.assign(m,m2)
+                    v_update = tf.assign(v,v2)
+                    update_clipper = tf.group(m_update,v_update)
+
+                elif opts['robust']=='local':
+                    gradients2=[]
+                    update_clipper=tf.group()
+                    for grad,var in grads_and_vars:
+                        rawname=var.name.split(':')[0]
+                        ones = np.ones(var.get_shape())
+                        m = tf.Variable(m_init*ones,name=rawname,trainable=False,dtype=tf.float32)
+                        v = tf.Variable(v_init*ones,name=rawname,trainable=False,dtype=tf.float32)
+                        m_unbiased = m/(1.0-m_alpha)
+                        v_unbiased = v/(1.0-v_alpha)
+                        clip = m_unbiased+tf.sqrt(v_unbiased) #*50+1e6
+                        grad2_abs = tf.minimum(tf.abs(grad),clip)
+                        m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(grad2_abs,clip)
+                        v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(grad2_abs,clip)**2
+                        grad2=tf.sign(grad)*grad2_abs
+                        gradients2.append(grad2)
+                        m_update=tf.assign(m,m2)
+                        v_update=tf.assign(v,v2)
+                        update_clipper=tf.group(update_clipper,m_update,v_update)
+                        #print('var=',var.name)
+
+            grad_updates=optimizer.apply_gradients(zip(gradients2,variables))
             train_op = tf.group(grad_updates,update_clipper)
 
             ########################################
