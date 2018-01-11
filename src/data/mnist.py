@@ -9,6 +9,7 @@ def modify_parser(subparsers):
 
     parser.add_argument('--seed',type=interval(int),default=0)
     parser.add_argument('--label_corruption',type=interval(float),default=0)
+    parser.add_argument('--noise',type=interval(float),default=0)
 
 class Data:
     def __init__(self,args):
@@ -17,9 +18,6 @@ class Data:
         from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
         import numpy as np
         import random
-
-        random.seed(args['seed'])
-        np.random.seed(args['seed'])
 
         datasets = read_data_sets(args['data_dir'],False)
 
@@ -37,6 +35,17 @@ class Data:
         self.train.Y = np.eye(10)[datasets.train._labels]
         self.train.Y = self.train.Y[0:args['numdp']]
 
+        random.seed(args['seed'])
+        np.random.seed(args['seed'])
+        noise_binary=np.random.binomial(1,args['noise'],size=self.train.X.shape)
+        noise_exponential=np.random.exponential(size=self.train.X.shape)
+        noise=noise_binary*noise_exponential
+        self.train.X=np.maximum(noise,self.train.X)
+
+        #import code; code.interact(local=locals())
+
+        random.seed(args['seed'])
+        np.random.seed(args['seed'])
         num_corrupted=int(args['label_corruption']*self.train.numdp)
         Y_shift=np.random.randint(1,9,size=[num_corrupted])
         Y_shifted=(np.argmax(self.train.Y[0:num_corrupted],axis=1)+Y_shift)%10

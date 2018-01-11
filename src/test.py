@@ -228,17 +228,19 @@ try:
                 with tf.name_scope('clipper'):
                     ave_alpha = 0.9
                     var_alpha = 0.9
+                    ave_init=0.0
+                    var_init=1.0
                     global_norm = tf.global_norm(gradients)
-                    ave = tf.Variable(0.0,trainable=False)
-                    var = tf.Variable(1.0,trainable=False)
+                    ave = tf.Variable(ave_init,trainable=False)
+                    var = tf.Variable(var_init,trainable=False)
                     #global_norm = tf.Print(global_norm,[ave,var,global_norm])
-                    ave_unbiased = ave/(1-ave_alpha)
-                    var_unbiased = var/(1-var_alpha)
+                    ave_unbiased = ave/(1.0-ave_alpha)
+                    var_unbiased = var/(1.0-var_alpha)
                     clip = ave_unbiased+tf.sqrt(var_unbiased) #+1e-6
                     #ave2 = ave_alpha*ave + (1-ave_alpha)*global_norm 
                     #var2 = var_alpha*var + (1-var_alpha)*global_norm**2
-                    ave2 = ave_alpha*ave + (1-ave_alpha)*tf.minimum(global_norm,clip)
-                    var2 = var_alpha*var + (1-var_alpha)*tf.minimum(global_norm,clip)**2
+                    ave2 = ave_alpha*ave + (1.0-ave_alpha)*tf.minimum(global_norm,clip)
+                    var2 = var_alpha*var + (1.0-var_alpha)*tf.minimum(global_norm,clip)**2
                     gradients, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
                     ave_update = tf.assign(ave,ave2)
                     var_update = tf.assign(var,var2)
@@ -314,7 +316,8 @@ try:
 
                         partitionsize=learningrate
                         if not opts['nodecay']:
-                            partitionsize/=math.sqrt(epoch)
+                            partitionsize/=math.sqrt(step)
+                            #partitionsize/=math.sqrt(epoch)
 
                         feed_dict={x_:Xbatch,y_:Ybatch,alpha_:partitionsize}
                         summary,_=sess.run([merged,train_op],feed_dict=feed_dict)
