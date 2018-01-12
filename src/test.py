@@ -53,7 +53,7 @@ subparser_common.add_argument('--log_dir',type=str,default='log')
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
 subparser_optimizer.add_argument('--nodecay',action='store_true')
-subparser_optimizer.add_argument('--robust',choices=['none','global','local'])
+subparser_optimizer.add_argument('--robust',choices=['none','global','local'],default='none')
 subparser_optimizer.add_argument('--m_alpha',type=interval(float),default=0.9)
 subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.9)
 subparser_optimizer.add_argument('--num_stddevs',type=interval(float),default=1)
@@ -68,7 +68,7 @@ argvv = [list(group) for is_key, group in itertools.groupby(sys.argv[1:], lambda
 
 args={}
 args['data'] = parser.parse_args(['data','regression'])
-args['model'] = parser.parse_args(['model','custom'])
+args['model'] = parser.parse_args(['model','glm'])
 args['common'] = parser.parse_args(['common'])
 args['graph'] = []
 
@@ -310,7 +310,7 @@ try:
             sess = tf.Session()
 
             opts_important={}
-            for opt in ['batchsize','robust','num_stddevs','m_alpha','v_alpha','learningrate','optimizer','noise','label_corruption']:
+            for opt in ['batchsize','robust','num_stddevs','m_alpha','v_alpha','learningrate','optimizer']: #,'noise','label_corruption']:
                 opts_important[opt]=opts[opt]
             opts_important_str=str(opts_important).translate(None,"{}: '")
 
