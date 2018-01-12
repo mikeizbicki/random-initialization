@@ -10,6 +10,8 @@ def modify_parser(subparsers):
     parser.add_argument('--seed',type=interval(int),default=0)
     parser.add_argument('--label_corruption',type=interval(float),default=0)
     parser.add_argument('--noise',type=interval(float),default=0)
+    parser.add_argument('--loud',type=interval(int),default=0)
+    parser.add_argument('--ones',type=interval(int),default=0)
 
 class Data:
     def __init__(self,args):
@@ -52,9 +54,15 @@ class Data:
         Y_corrupted=np.eye(10)[Y_shifted]
         self.train.Y[0:num_corrupted] = Y_corrupted
 
+        self.train.X[0:args['loud']] *= args['numdp']
+        self.train.Y[0:args['loud']] = self.train.Y[0]
+
+        self.train.X[0:args['ones']] = 1+0*self.train.X[0:args['ones']]
+
         self.test = Dataset()
         self.test.numdp = 10000
         self.test.X = datasets.test._images.reshape([10000]+self.dimX)
         self.test.X = self.test.X[0:args['numdp_test'],...]
         self.test.Y = np.eye(10)[datasets.test._labels]
         self.test.Y = self.test.Y[0:args['numdp_test']]
+

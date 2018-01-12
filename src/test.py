@@ -54,8 +54,9 @@ subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
 subparser_optimizer.add_argument('--nodecay',action='store_true')
 subparser_optimizer.add_argument('--robust',choices=['none','global','local'])
-subparser_optimizer.add_argument('--m_alpha',type=interval(float),default=0.5)
-subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.5)
+subparser_optimizer.add_argument('--m_alpha',type=interval(float),default=0.9)
+subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.9)
+subparser_optimizer.add_argument('--num_stddevs',type=interval(float),default=1)
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batchsize',type=interval(int),default=5)
 subparser_optimizer.add_argument('--learningrate',type=interval(float),default=-3)
@@ -184,6 +185,8 @@ try:
                 x_ = tf.placeholder(tf.float32, [None]+data.dimX)
                 y_ = tf.placeholder(tf.float32, [None,data.dimY])
 
+            global_step = tf.Variable(0, name='global_step',trainable=False)
+
             y = module_model.inference(x_,data,opts)
 
             with tf.name_scope('losses'):
@@ -235,6 +238,17 @@ try:
                 m_init=0.0
                 v_init=1.0
 
+                total_parameters=0
+                for _,var in grads_and_vars:
+                    variable_parameters = 1
+                    for dim in var.get_shape():
+                        variable_parameters *= dim.value
+                    total_parameters += variable_parameters
+                print('    total_parameters=',total_parameters)
+                if opts['num_stddevs']<=0:
+                    opts['num_stddevs']=math.sqrt(2.0*math.log(float(total_parameters)))
+                print('    opts[num_stddevs]=',opts['num_stddevs'])
+
                 if opts['robust']=='none':
                     gradients2=gradients
                     update_clipper = tf.group()
@@ -246,7 +260,7 @@ try:
                     #global_norm = tf.Print(global_norm,[m,v,global_norm])
                     m_unbiased = m/(1.0-m_alpha)
                     v_unbiased = v/(1.0-v_alpha)
-                    clip = m_unbiased+tf.sqrt(v_unbiased) #+1e-6
+                    clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
                     #m2 = m_alpha*m + (1-m_alpha)*global_norm
                     #v2 = v_alpha*v + (1-v_alpha)*global_norm**2
                     m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
@@ -259,14 +273,18 @@ try:
                 elif opts['robust']=='local':
                     gradients2=[]
                     update_clipper=tf.group()
+
                     for grad,var in grads_and_vars:
                         rawname=var.name.split(':')[0]
                         ones = np.ones(var.get_shape())
                         m = tf.Variable(m_init*ones,name=rawname,trainable=False,dtype=tf.float32)
                         v = tf.Variable(v_init*ones,name=rawname,trainable=False,dtype=tf.float32)
-                        m_unbiased = m/(1.0-m_alpha)
-                        v_unbiased = v/(1.0-v_alpha)
-                        clip = m_unbiased+tf.sqrt(v_unbiased) #*50+1e6
+                        #m_unbiased = m/(1.0-m_alpha)
+                        #v_unbiased = v/(1.0-v_alpha)
+                        global_step_float=tf.cast(global_step,tf.float32)
+                        m_unbiased = m/(1.0-m_alpha**global_step_float)
+                        v_unbiased = (v-(1.0-v_alpha)*v_init)/(1.0-v_alpha**global_step_float)
+                        clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
                         grad2_abs = tf.minimum(tf.abs(grad),clip)
                         m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(grad2_abs,clip)
                         v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(grad2_abs,clip)**2
@@ -277,7 +295,9 @@ try:
                         update_clipper=tf.group(update_clipper,m_update,v_update)
                         #print('var=',var.name)
 
-            grad_updates=optimizer.apply_gradients(zip(gradients2,variables))
+            grad_updates=optimizer.apply_gradients(
+                    zip(gradients2,variables),
+                    global_step=global_step)
             train_op = tf.group(grad_updates,update_clipper)
 
             ########################################
@@ -289,23 +309,28 @@ try:
             merged = tf.summary.merge_all()
             sess = tf.Session()
 
+            opts_important={}
+            for opt in ['batchsize','robust','num_stddevs','m_alpha','v_alpha','learningrate','optimizer','noise','label_corruption']:
+                opts_important[opt]=opts[opt]
+            opts_important_str=str(opts_important).translate(None,"{}: '")
+
             import hashlib
             import shutil
             optshash=hashlib.sha224(str(opts)).hexdigest()
-            dirname = 'optshash='+optshash
+            dirname = 'optshash='+optshash+'-'+opts_important_str
             log_dir = args['common'].log_dir+'/'+dirname
             shutil.rmtree(log_dir,ignore_errors=True)
             writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
             writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
             print('    log_dir = '+log_dir)
 
-            symlink=args['common'].log_dir+'/recent'
-            try:
-                os.remove(symlink)
-            except:
-                pass
-            os.symlink(dirname,symlink)
-            print('    symlink = '+symlink)
+            #symlink=args['common'].log_dir+'/recent'
+            #try:
+                #os.remove(symlink)
+            #except:
+                #pass
+            #os.symlink(dirname,symlink)
+            #print('    symlink = '+symlink)
 
             with open(log_dir+'/opts.txt','w') as f:
                 f.write('opts = '+str(opts))
