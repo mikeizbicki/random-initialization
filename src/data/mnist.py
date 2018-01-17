@@ -4,7 +4,7 @@ def modify_parser(subparsers):
 
     parser = subparsers.add_parser('mnist', help='a handwritten digit dataset')
     parser.add_argument('--data_dir',type=str,default='data/mnist')
-    parser.add_argument('--numdp',type=interval(int),default=55000)
+    parser.add_argument('--numdp',type=interval(int),default=60000)
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
 
     parser.add_argument('--seed',type=interval(int),default=0)
@@ -13,56 +13,63 @@ def modify_parser(subparsers):
     parser.add_argument('--loud',type=interval(int),default=0)
     parser.add_argument('--ones',type=interval(int),default=0)
 
-class Data:
-    def __init__(self,args):
+def init(args):
 
-        import tensorflow as tf
-        from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
-        import numpy as np
-        import random
+    global train
+    global test 
+    global dimX
+    global dimY
 
-        datasets = read_data_sets(args['data_dir'],False)
+    import tensorflow as tf
+    from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
+    import numpy as np
+    import random
 
-        class Dataset:
-            def __init__(self):
-                pass
+    datasets = read_data_sets(args['data_dir'],False)
 
-        self.dimX = [28,28,1]
-        self.dimY = 10
+    class Dataset:
+        def __init__(self):
+            pass
 
-        self.train = Dataset()
-        self.train.numdp = args['numdp']
-        self.train.X = datasets.train._images.reshape([55000]+self.dimX)
-        self.train.X = self.train.X[0:args['numdp'],...]
-        self.train.Y = np.eye(10)[datasets.train._labels]
-        self.train.Y = self.train.Y[0:args['numdp']]
+    dimX = [28,28,1]
+    dimY = 10
+    numdp = args['numdp']
 
-        random.seed(args['seed'])
-        np.random.seed(args['seed'])
-        noise_binary=np.random.binomial(1,args['noise'],size=self.train.X.shape)
-        noise_exponential=np.random.exponential(size=self.train.X.shape)
-        noise=noise_binary*noise_exponential
-        self.train.X=np.maximum(noise,self.train.X)
+    # training data
 
-        #import code; code.interact(local=locals())
+    X = np.concatenate([datasets.train._images.reshape([55000]+dimX),
+                        datasets.validation._images.reshape([5000]+dimX)])
+    X = X[0:args['numdp'],...]
+    Y = np.eye(10)[np.concatenate([datasets.train._labels,
+                                   datasets.validation._labels])]
+    Y = Y[0:args['numdp']]
 
-        random.seed(args['seed'])
-        np.random.seed(args['seed'])
-        num_corrupted=int(args['label_corruption']*self.train.numdp)
-        Y_shift=np.random.randint(1,9,size=[num_corrupted])
-        Y_shifted=(np.argmax(self.train.Y[0:num_corrupted],axis=1)+Y_shift)%10
-        Y_corrupted=np.eye(10)[Y_shifted]
-        self.train.Y[0:num_corrupted] = Y_corrupted
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
+    noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
+    noise_exponential=np.random.exponential(size=X.shape)
+    noise=noise_binary*noise_exponential
+    X=np.maximum(noise,X)
 
-        self.train.X[0:args['loud']] *= args['numdp']
-        self.train.Y[0:args['loud']] = self.train.Y[0]
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
+    num_corrupted=int(args['label_corruption']*numdp)
+    Y_shift=np.random.randint(1,9,size=[num_corrupted])
+    Y_shifted=(np.argmax(Y[0:num_corrupted],axis=1)+Y_shift)%10
+    Y_corrupted=np.eye(10)[Y_shifted]
+    Y[0:num_corrupted] = Y_corrupted
 
-        self.train.X[0:args['ones']] = 1+0*self.train.X[0:args['ones']]
+    X[0:args['loud']] *= args['numdp']
+    Y[0:args['loud']] = Y[0]
 
-        self.test = Dataset()
-        self.test.numdp = 10000
-        self.test.X = datasets.test._images.reshape([10000]+self.dimX)
-        self.test.X = self.test.X[0:args['numdp_test'],...]
-        self.test.Y = np.eye(10)[datasets.test._labels]
-        self.test.Y = self.test.Y[0:args['numdp_test']]
+    X[0:args['ones']] = 1+0*X[0:args['ones']]
+    train=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y)))
+
+    # testing data
+
+    X = datasets.test._images.reshape([10000]+dimX)
+    X = X[0:args['numdp_test'],...]
+    Y = np.eye(10)[datasets.test._labels]
+    Y = Y[0:args['numdp_test']]
+    test=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y)))
 

@@ -41,16 +41,16 @@ def inference(x_,data,opts,is_training=True):
         for n in opts['layers']:
             print('    layer'+str(layer)+' nodes: '+str(n))
             with tf.name_scope('layer'+str(layer)):
-                w = tf.Variable(randomness([n0,n],layer),name='w')
+                w = tf.Variable(randomness(n0+[n],layer),name='w')
                 b = tf.Variable(randomness([1,n],layer+1),name='b')
                 y = activation(tf.matmul(y,w)+b)
-            n0 = n
+            n0 = [n]
             if opts['activation']=='crelu':
                 n0*=2
             layer+=1
 
         with tf.name_scope('layer_final'):
-            w = tf.Variable(randomness([n0,data.dimY],layer+1),name='w')
+            w = tf.Variable(randomness(n0+[data.dimY],layer+1),name='w')
             b = tf.Variable(bias,name='b')
             y = tf.matmul(y,w)+b
 
