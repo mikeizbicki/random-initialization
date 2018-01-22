@@ -25,6 +25,8 @@ def init(args):
     import numpy as np
     import random
 
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
     datasets = read_data_sets(args['data_dir'],False)
 
     class Dataset:
@@ -44,23 +46,23 @@ def init(args):
                                    datasets.validation._labels])]
     Y = Y[0:args['numdp']]
 
-    random.seed(args['seed'])
-    np.random.seed(args['seed'])
-    noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
-    noise_exponential=np.random.exponential(size=X.shape)
-    noise=noise_binary*noise_exponential
-    X=np.maximum(noise,X)
+    #random.seed(args['seed'])
+    #np.random.seed(args['seed'])
+    #noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
+    #noise_exponential=np.random.exponential(size=X.shape)
+    #noise=noise_binary*noise_exponential
+    #X=np.maximum(noise,X)
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
-    num_corrupted=int(args['label_corruption']*numdp)
+    num_corrupted=int(args['label_corruption'])
     Y_shift=np.random.randint(1,9,size=[num_corrupted])
     Y_shifted=(np.argmax(Y[0:num_corrupted],axis=1)+Y_shift)%10
     Y_corrupted=np.eye(10)[Y_shifted]
     Y[0:num_corrupted] = Y_corrupted
 
-    X[0:args['loud']] *= args['numdp']
-    Y[0:args['loud']] = Y[0]
+    #X[0:args['loud']] *= args['numdp']
+    #Y[0:args['loud']] = Y[0]
 
     X[0:args['ones']] = 1+0*X[0:args['ones']]
     train=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y)))

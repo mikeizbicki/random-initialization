@@ -9,7 +9,7 @@ def modify_parser(subparsers):
     parser.add_argument('--dimX',type=interval(int),default=[100],nargs='*')
     parser.add_argument('--dimY',type=interval(int),default=2)
     
-    parser.add_argument('--dimX_nuisance',type=interval(int),default=[0],nargs='*')
+    parser.add_argument('--dimX_nuisance',type=interval(int),nargs='+',default=[0])
     parser.add_argument('--noise',type=interval(int),default=0)
     parser.add_argument('--label_flip',type=interval(int),default=0)
 
@@ -27,8 +27,13 @@ def init(args):
 
     dimX_orig=args['dimX']
     dimX_nuisance=args['dimX_nuisance']
+    #dimX=dimX_nuisance 
     dimX=[a+b for (a,b) in zip(dimX_orig,dimX_nuisance)]
     dimY=args['dimY']
+
+    print('dimX_orig=',dimX_orig)
+    print('dimX_nuisance=',dimX_nuisance)
+    print('dimX=',dimX)
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
@@ -55,7 +60,10 @@ def init(args):
     X,Y=make_data(args['numdp'],args['seed'])
     X[0:args['label_flip'],...] *= 1 #args['numdp']
     Y[0:args['label_flip'],...] = Y[0:args['label_flip'],...]*(-1) + 1
-    X[0:args['noise'],...] += 100*np.random.normal(size=dimX)
+    X[0:args['noise'],...] *= 1 #*np.random.normal(size=dimX)
+
+    #X[0,...] = mu[...,1]
+    #Y[0,...] = [1, 0]
     train=tf.data.Dataset.from_tensor_slices((X,Y))
 
     X,Y=make_data(args['numdp_test'],args['seed']+1)

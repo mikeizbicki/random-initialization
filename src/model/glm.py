@@ -11,6 +11,10 @@ def modify_parser(subparsers):
     parser_weights.add_argument('--abs',type=bool,default=False)
     parser_weights.add_argument('--normalize',type=str,default='False')
 
+    parser_weights.add_argument('--loss',choices=['mse','xentropy'],default='xentropy')
+    parser_weights.add_argument('--l2',type=interval(float),default=1e-6)
+    parser_weights.add_argument('--l1',type=interval(float),default=0.0)
+
 def inference(x_,data,opts,is_training=True):
     import tensorflow as tf
     import numpy as np
@@ -31,3 +35,31 @@ def inference(x_,data,opts,is_training=True):
         y = tf.tensordot(x_,w,axes=(map(lambda x: x+1,waxes),waxes))+b
 
     return y
+
+def loss(args,y_,y):
+    import tensorflow as tf
+
+    with tf.name_scope('losses'):
+        xentropy = tf.reduce_mean(
+                    tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y),
+                    #tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y),
+                    name='xentropy')
+        tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
+
+        mse = tf.losses.mean_squared_error(y_,y)
+
+        argmax_y =tf.argmax(y ,axis=1)
+        argmax_y_=tf.argmax(y_,axis=1)
+        results = tf.cast(tf.equal(argmax_y,argmax_y_),tf.float32)
+        #results = tf.Print(results,[argmax_y,argmax_y_,results])
+        accuracy = tf.reduce_mean(results,name='accuracy')
+        tf.add_to_collection(tf.GraphKeys.LOSSES,accuracy)
+
+        regularization=0
+        for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+            regularization+=tf.nn.l2_loss(var)*args['l2']
+
+        print('loss=',args['loss'])
+        loss = eval(args['loss'])+regularization
+
+    return loss

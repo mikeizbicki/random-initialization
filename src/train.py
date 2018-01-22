@@ -49,7 +49,7 @@ subparser_common.add_argument('--seed_tf',type=int,default=0)
 subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
 subparser_common.add_argument('--log_dir',type=str,default='log')
-subparser_common.add_argument('--compact',action='store_true',default=False)
+subparser_common.add_argument('--verbose',action='store_true',default=False)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
@@ -59,8 +59,9 @@ subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.9)
 subparser_optimizer.add_argument('--num_stddevs',type=interval(float),default=1)
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batch_size',type=interval(int),default=5)
+subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
 subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
-subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none'],default=None)
+subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none'],default='inverse_time')
 subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
 subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
 
@@ -170,7 +171,7 @@ for partition in range(0,args['common'].partitions+1):
             data.init(partitionargs['data'])
             #data.train = data.train.shuffle(opts['batch_size']*100).batch(opts['batch_size'])
             data.train = data.train.batch(opts['batch_size'])
-            data.test = data.test.batch(opts['batch_size'])
+            data.test = data.test.batch(opts['batch_size_test'])
 
             iterator = tf.data.Iterator.from_structure(
                     data.train.output_types,
@@ -179,27 +180,10 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_ = iterator.get_next()
 
         global_step = tf.Variable(0, name='global_step',trainable=False)
+        global_step_float=tf.cast(global_step,tf.float32)
 
         y = module_model.inference(x_,data,opts)
-
-        with tf.name_scope('losses'):
-            xentropy = tf.reduce_mean(
-                        tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y),
-                        #tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y),
-                        name='xentropy')
-            tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
-
-            mse = tf.losses.mean_squared_error(y_,y)
-
-            argmax_y =tf.argmax(y ,axis=1)
-            argmax_y_=tf.argmax(y_,axis=1)
-            results = tf.cast(tf.equal(argmax_y,argmax_y_),tf.float32)
-            results = tf.cast(tf.equal(argmax_y,argmax_y_),tf.float32)
-            #results = tf.Print(results,[argmax_y,argmax_y_,results])
-            accuracy = tf.reduce_mean(results,name='accuracy')
-            tf.add_to_collection(tf.GraphKeys.LOSSES,accuracy)
-
-            loss = eval(opts['loss'])
+        loss = module_model.loss(partitionargs['model'],y_,y)
 
         with tf.name_scope('batch/'):
             vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
@@ -222,8 +206,10 @@ for partition in range(0,args['common'].partitions+1):
             learning_rate=tf.train.inverse_time_decay(learning_rate,global_step,decay_steps,0.5)
         elif opts['decay']=='polynomial':
             learning_rate=tf.train.polynomial_decay(learning_rate,global_step,decay_steps,learning_rate/100)
-        elif opts['rate_decay']=='piecewise_constant':
+        elif opts['decay']=='piecewise_constant':
             raise ValueError('piecewise_constant rate decay needs work')
+
+        tf.summary.scalar('learning_rate',learning_rate)
 
         # set optimizer
 
@@ -254,12 +240,15 @@ for partition in range(0,args['common'].partitions+1):
             gradients, variables = zip(*grads_and_vars)
             global_norm = tf.global_norm(gradients)
 
-            tf.summary.scalar('global_norm',global_norm)
-
-            m_alpha = opts['m_alpha']
-            v_alpha = opts['v_alpha']
+            m_alpha = 0.999 # opts['m_alpha']
+            v_alpha = 0.999 # opts['v_alpha']
             m_init=0.0
             v_init=1.0
+
+            m = tf.Variable(m_init,trainable=False)
+            v = tf.Variable(v_init,trainable=False)
+            m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
+            v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
 
             total_parameters=0
             for _,var in grads_and_vars:
@@ -268,34 +257,46 @@ for partition in range(0,args['common'].partitions+1):
                     variable_parameters *= dim.value
                 total_parameters += variable_parameters
             print('    total_parameters=',total_parameters)
-            if opts['num_stddevs']<=0:
-                opts['num_stddevs']=math.sqrt(2.0*math.log(float(total_parameters)))
+
+            stddev_modifier=math.sqrt(2.0*math.log(float(total_parameters)))
+            print('    stddev_modifier=',stddev_modifier)
+
+            #if opts['num_stddevs']<=0:
+            opts['num_stddevs']*=stddev_modifier
             print('    opts[num_stddevs]=',opts['num_stddevs'])
+
+            clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']/math.sqrt(opts['batch_size'])/2
+
+            #m2 = m_alpha*m + (1-m_alpha)*global_norm
+            #v2 = v_alpha*v + (1-v_alpha)*global_norm**2
+            m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
+            v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(global_norm,clip)**2
+            m_update = tf.assign(m,m2)
+            v_update = tf.assign(v,v2)
+            update_clipper = tf.group(m_update,v_update)
+
+            tf.summary.scalar('m',m)
+            tf.summary.scalar('v',v)
+            tf.summary.scalar('m_unbiased',m_unbiased)
+            tf.summary.scalar('v_unbiased',v_unbiased)
+            tf.summary.scalar('global_norm',global_norm)
+            tf.summary.scalar('clip',clip)
 
             if opts['robust']=='none':
                 gradients2=gradients
-                update_clipper = tf.group()
 
             elif opts['robust']=='global':
-                m = tf.Variable(m_init,trainable=False)
-                v = tf.Variable(v_init,trainable=False)
-                #global_norm = tf.Print(global_norm,[m,v,global_norm])
-                m_unbiased = m/(1.0-m_alpha)
-                v_unbiased = v/(1.0-v_alpha)
-                clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
-                #m2 = m_alpha*m + (1-m_alpha)*global_norm
-                #v2 = v_alpha*v + (1-v_alpha)*global_norm**2
-                m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
-                v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(global_norm,clip)**2
-                #gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
-                gradients2 = tf.cond(
+                clip = tf.cond(
                         clip>global_norm,
-                        lambda:list(gradients),
-                        lambda:map (lambda x:x*0.0,gradients)
+                        lambda:clip,
+                        lambda:tf.Print(clip,[global_norm,clip,m_unbiased,m,v_unbiased,v],'clipped'),
                         )
-                m_update = tf.assign(m,m2)
-                v_update = tf.assign(v,v2)
-                update_clipper = tf.group(m_update,v_update)
+                gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
+                #gradients2 = tf.cond(
+                        #clip>global_norm,
+                        #lambda:list(gradients),
+                        #lambda:map (lambda x:x*1000.0,gradients)
+                        #)
 
             elif opts['robust']=='local':
                 gradients2=[]
@@ -308,9 +309,9 @@ for partition in range(0,args['common'].partitions+1):
                     v = tf.Variable(v_init*ones,name=rawname,trainable=False,dtype=tf.float32)
                     #m_unbiased = m/(1.0-m_alpha)
                     #v_unbiased = v/(1.0-v_alpha)
-                    global_step_float=tf.cast(global_step,tf.float32)
-                    m_unbiased = m/(1.0-m_alpha**global_step_float)
-                    v_unbiased = (v-(1.0-v_alpha)*v_init)/(1.0-v_alpha**global_step_float)
+                    m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
+                    v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
+                    #v_unbiased = (v-(1.0-v_alpha)*v_init)/(1.0-v_alpha**(1+global_step_float))
                     clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
                     grad2_abs = tf.minimum(tf.abs(grad),clip)
                     m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(grad2_abs,clip)
@@ -405,7 +406,7 @@ for partition in range(0,args['common'].partitions+1):
                             loss_res,summary,_,_=sess.run([loss,summary_batch,updates,train_op])
                             writer_train.add_summary(summary, global_step.eval())
                             print('    step=%d, loss=%g               '%(global_step.eval(),loss_res))
-                            if opts['compact']:
+                            if not opts['verbose']:
                                 print('\033[F',end='')
                     except tf.errors.OutOfRangeError: 
                         summary=sess.run(summary_epoch)
@@ -421,8 +422,8 @@ for partition in range(0,args['common'].partitions+1):
                     res,summary=sess.run([values,summary_epoch])
                     writer_test.add_summary(summary,global_step.eval())
 
-                    if opts['compact'] and epoch!=0:
-                        print('\033[F',end='')
+                    #if not opts['verbose'] and epoch!=0:
+                        #print('\033[F',end='')
                     print('  epoch: %d    '%epoch,res,'         ')
 
 
