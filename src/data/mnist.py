@@ -75,7 +75,6 @@ def init(args):
         X = X[0:args['numdp'],...]
         Y = Y[0:args['numdp']]
 
-    raise ValueError('')
     #Xnew
     #random.seed(args['seed'])
     #np.random.seed(args['seed'])
