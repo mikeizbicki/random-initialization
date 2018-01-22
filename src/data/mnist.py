@@ -46,6 +46,14 @@ def init(args):
                                    datasets.validation._labels])]
     Y = Y[0:args['numdp']]
 
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
+    np.random.shuffle(X)
+
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
+    np.random.shuffle(Y)
+
     #random.seed(args['seed'])
     #np.random.seed(args['seed'])
     #noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
