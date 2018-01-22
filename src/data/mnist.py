@@ -5,6 +5,7 @@ def modify_parser(subparsers):
     parser = subparsers.add_parser('mnist', help='a handwritten digit dataset')
     parser.add_argument('--data_dir',type=str,default='data/mnist')
     parser.add_argument('--numdp',type=interval(int),default=60000)
+    parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
 
     parser.add_argument('--seed',type=interval(int),default=0)
@@ -41,10 +42,8 @@ def init(args):
 
     X = np.concatenate([datasets.train._images.reshape([55000]+dimX),
                         datasets.validation._images.reshape([5000]+dimX)])
-    X = X[0:args['numdp'],...]
     Y = np.eye(10)[np.concatenate([datasets.train._labels,
                                    datasets.validation._labels])]
-    Y = Y[0:args['numdp']]
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
@@ -54,6 +53,30 @@ def init(args):
     np.random.seed(args['seed'])
     np.random.shuffle(Y)
 
+    if args['numdp_balanced']:
+        Yargmax = np.argmax(Y,axis=1)
+        numdp_per_class=args['numdp']/10
+        allIndices=[]
+        for i in range(0,10):
+            arr,=np.where(Yargmax==i)
+            allIndices += np.ndarray.tolist(arr[:numdp_per_class])
+        X = X[allIndices]
+        Y = Y[allIndices]
+
+        random.seed(args['seed'])
+        np.random.seed(args['seed'])
+        np.random.shuffle(X)
+
+        random.seed(args['seed'])
+        np.random.seed(args['seed'])
+        np.random.shuffle(Y)
+
+    else:
+        X = X[0:args['numdp'],...]
+        Y = Y[0:args['numdp']]
+
+    raise ValueError('')
+    #Xnew
     #random.seed(args['seed'])
     #np.random.seed(args['seed'])
     #noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
