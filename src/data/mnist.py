@@ -9,7 +9,7 @@ def modify_parser(subparsers):
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
 
     parser.add_argument('--seed',type=interval(int),default=0)
-    parser.add_argument('--label_corruption',type=interval(float),default=0)
+    parser.add_argument('--label_corruption',type=interval(int),default=0)
     parser.add_argument('--noise',type=interval(float),default=0)
     parser.add_argument('--loud',type=interval(int),default=0)
     parser.add_argument('--ones',type=interval(int),default=0)
@@ -75,27 +75,8 @@ def init(args):
         X = X[0:args['numdp'],...]
         Y = Y[0:args['numdp']]
 
-    #Xnew
-    #random.seed(args['seed'])
-    #np.random.seed(args['seed'])
-    #noise_binary=np.random.binomial(1,args['noise'],size=X.shape)
-    #noise_exponential=np.random.exponential(size=X.shape)
-    #noise=noise_binary*noise_exponential
-    #X=np.maximum(noise,X)
-
-    random.seed(args['seed'])
-    np.random.seed(args['seed'])
-    num_corrupted=int(args['label_corruption'])
-    Y_shift=np.random.randint(1,9,size=[num_corrupted])
-    Y_shifted=(np.argmax(Y[0:num_corrupted],axis=1)+Y_shift)%10
-    Y_corrupted=np.eye(10)[Y_shifted]
-    Y[0:num_corrupted] = Y_corrupted
-
-    #X[0:args['loud']] *= args['numdp']
-    #Y[0:args['loud']] = Y[0]
-
-    X[0:args['ones']] = 1+0*X[0:args['ones']]
-    train=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y)))
+    Id = np.array(range(0,args['numdp']))
+    train=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y),Id))
 
     # testing data
 
@@ -103,5 +84,6 @@ def init(args):
     X = X[0:args['numdp_test'],...]
     Y = np.eye(10)[datasets.test._labels]
     Y = Y[0:args['numdp_test']]
-    test=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y)))
+    Id = np.array(range(0,args['numdp_test']))
+    test=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y),Id))
 

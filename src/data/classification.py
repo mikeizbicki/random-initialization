@@ -11,7 +11,8 @@ def modify_parser(subparsers):
     
     parser.add_argument('--dimX_nuisance',type=interval(int),nargs='+',default=[0])
     parser.add_argument('--noise',type=interval(int),default=0)
-    parser.add_argument('--label_flip',type=interval(int),default=0)
+    parser.add_argument('--label_corruption',type=interval(int),default=0)
+    parser.add_argument('--unit_norm',action='store_true')
 
     parser.add_argument('--seed',type=int,default=0)
 
@@ -54,17 +55,15 @@ def init(args):
             X[i,...] = mu[...,Yval] + np.random.normal(size=[1]+dimX_orig)
             #print('Yval=',Yval,'Y=',Y[i,...],'Xval=',X[i,...])
         X = np.dot(X,projection)
-        #X += np.random.normal(size=[numdp]+dimX)*10
-        return np.float32(X),np.float32(Y)
+        #if args['unit_norm']:
+            #for i in range(0,numdp):
+                #X[i,...] /= np.linalg.norm(X[i,...])
+        Id = np.array(range(0,numdp))
+        return np.float32(X),np.float32(Y),Id
 
-    X,Y=make_data(args['numdp'],args['seed'])
-    X[0:args['label_flip'],...] *= 1 #args['numdp']
-    Y[0:args['label_flip'],...] = Y[0:args['label_flip'],...]*(-1) + 1
-    X[0:args['noise'],...] *= 1 #*np.random.normal(size=dimX)
+    X,Y,Id=make_data(args['numdp'],args['seed'])
+    train=tf.data.Dataset.from_tensor_slices((X,Y,Id))
 
-    #X[0,...] = mu[...,1]
-    #Y[0,...] = [1, 0]
-    train=tf.data.Dataset.from_tensor_slices((X,Y))
+    X,Y,Id=make_data(args['numdp_test'],args['seed']+1)
+    test=tf.data.Dataset.from_tensor_slices((X,Y,Id))
 
-    X,Y=make_data(args['numdp_test'],args['seed']+1)
-    test=tf.data.Dataset.from_tensor_slices((X,Y))
