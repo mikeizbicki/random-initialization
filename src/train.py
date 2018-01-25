@@ -7,6 +7,7 @@ import itertools
 import math
 import os
 import pkgutil
+import sklearn
 import sys
 
 ########################################
@@ -48,23 +49,40 @@ subparser_common.add_argument('--partitions',type=int,default=0)
 subparser_common.add_argument('--seed_tf',type=int,default=0)
 subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
-subparser_common.add_argument('--log_dir',type=str,default='log')
 subparser_common.add_argument('--verbose',action='store_true',default=False)
+subparser_common.add_argument('--do_sklearn',action='store_true')
+
+
+subparser_log = subparser_common.add_argument_group('logging options')
+subparser_log.add_argument('--log_dir',type=str,default='log')
+subparser_log.add_argument('--tensorboard',action='store_true')
+subparser_log.add_argument('--dirname_opts',type=str,default=[],nargs='*')
+
+subparser_preprocess = subparser_common.add_argument_group('data preprocessing options')
+subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
+subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
+subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
-subparser_optimizer.add_argument('--loss',choices=['xentropy','mse'],default='xentropy')
-subparser_optimizer.add_argument('--robust',choices=['none','global','local'],default='none')
-subparser_optimizer.add_argument('--median',action='store_true')
-subparser_optimizer.add_argument('--m_alpha',type=interval(float),default=0.9)
-subparser_optimizer.add_argument('--v_alpha',type=interval(float),default=0.9)
-subparser_optimizer.add_argument('--num_stddevs',type=interval(float),default=1)
+subparser_optimizer.add_argument('--loss',choices=['xentropy','mse','huber','absdiff'],default='xentropy')
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batch_size',type=interval(int),default=5)
 subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
 subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
-subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none'],default='inverse_time')
+subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='sqrt')
 subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
 subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
+
+subparser_robust = subparser_common.add_argument_group('robustness options')
+subparser_robust.add_argument('--robust',choices=['none','global','local'],default='none')
+subparser_robust.add_argument('--median',action='store_true')
+subparser_robust.add_argument('--burn_in',type=interval(int),default=0)
+subparser_robust.add_argument('--window_size',type=interval(int),default=1000)
+subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
+subparser_robust.add_argument('--clip_method',choices=['soft','hard'],default='soft')
+subparser_robust.add_argument('--m_alpha',type=interval(float),default=0.9)
+subparser_robust.add_argument('--v_alpha',type=interval(float),default=0.9)
+subparser_robust.add_argument('--num_stddevs',type=interval(float),default=1)
 
 ####################
 
@@ -149,10 +167,6 @@ for partition in range(0,args['common'].partitions+1):
                 opts[param_name] = eval('args[command].'+param_name)
     titles_partition.append(' ; '.join(title_partition))
 
-    tf.set_random_seed(opts['seed_tf'])
-    random.seed(opts['seed_np'])
-    np.random.seed(opts['seed_np'])
-
     ########################################
     print('  initializing graphs')
     graphs[partition]=[]
@@ -165,28 +179,59 @@ for partition in range(0,args['common'].partitions+1):
     print('  setting tensorflow options')
     with tf.Graph().as_default():
 
+        tf.set_random_seed(opts['seed_tf'])
+        random.seed(opts['seed_np'])
+        np.random.seed(opts['seed_np'])
+
+        global_step = tf.Variable(0, name='global_step',trainable=False)
+        global_step_float=tf.cast(global_step,tf.float32)
+
         ########################################
         print('  creating tensorflow model')
 
-        def unit_norm(x,y,id):
-            return (x/tf.norm(x),y,id)
-
-        def label_corruption(x,y,id):
-            #y_corrupt=tf.ones(y.get_shape())-y
-            #y_corrupt=tf.concat([y[1:],y[:1]],axis=0)
-            #return (x,tf.cond(id>=opts['label_corruption'],lambda: y,lambda: y_corrupt),id)
-            y2=tf.cond(
-                    id>=opts['label_corruption'],
-                    lambda: y,
-                    lambda: tf.concat([y[1:],y[:1]],axis=0)
-                    )
-            return (x,y2,id)
-
         with tf.name_scope('inputs'):
             data.init(partitionargs['data'])
-            data.train = data.train.shuffle(opts['batch_size']*10000) #.batch(opts['batch_size'])
+
+            def unit_norm(x,y,id):
+                return (x/tf.norm(x),y,id)
+
+            gaussian_X_norms=tf.random_normal([data.train_numdp]+data.dimX)
+            def gaussian_X(x,y,id):
+                if opts['gaussian_X']>0:
+                    x2=gaussian_X_norms[id,...]*tf.norm(x)
+                else:
+                    x2=x
+                return (x2,y,id)
+
+            def zero_Y(x,y,id):
+                if opts['zero_Y']>0:
+                    y2=0*y
+                else:
+                    y2=y
+                return (x,y2,id)
+
+            def label_corruption(x,y,id):
+                #y_corrupt=tf.ones(y.get_shape())-y
+                #y_corrupt=tf.concat([y[1:],y[:1]],axis=0)
+                #return (x,tf.cond(id>=opts['label_corruption'],lambda: y,lambda: y_corrupt),id)
+                if opts['label_corruption']>0:
+                    y2=tf.cond(
+                            id>=opts['label_corruption'],
+                            lambda: y,
+                            lambda: tf.concat([y[1:],y[:1]],axis=0)
+                            )
+                else:
+                    y2=y
+                return (x,y2,id)
+
             #data.train = data.train.map(unit_norm)
             data.train = data.train.map(label_corruption)
+            data.train = data.train.map(gaussian_X)
+            data.train = data.train.map(zero_Y)
+            data.train = data.train.shuffle(
+                    data.train_numdp,
+                    seed=0
+                    ) 
             data.train = data.train.batch(opts['batch_size'])
 
             #data.test = data.test.map(unit_norm)
@@ -199,17 +244,15 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-        global_step = tf.Variable(0, name='global_step',trainable=False)
-        global_step_float=tf.cast(global_step,tf.float32)
-
         y = module_model.inference(x_,data,opts)
         y_argmax = tf.argmax(y)
         loss = module_model.loss(partitionargs['model'],y_,y)
 
-        with tf.name_scope('batch/'):
-            vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-            for var in vars:
-                tf.summary.histogram(var.name,var)
+        if opts['tensorboard']:
+            with tf.name_scope('batch/'):
+                vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+                for var in vars:
+                    tf.summary.histogram(var.name,var)
 
         ########################################
         print('  creating tensorflow optimizer')
@@ -217,7 +260,11 @@ for partition in range(0,args['common'].partitions+1):
         # set learning rate
 
         learning_rate=10**opts['learning_rate']
-        decay_steps=opts['decay_steps']
+        #decay_steps=opts['decay_steps']
+        if data.train_numdp:
+            decay_steps=data.train_numdp
+        else:
+            decay_steps=100000
 
         if opts['decay']=='exponential':
             learning_rate = tf.train.exponential_decay(learning_rate,global_step,decay_steps,0.96)
@@ -227,10 +274,13 @@ for partition in range(0,args['common'].partitions+1):
             learning_rate=tf.train.inverse_time_decay(learning_rate,global_step,decay_steps,0.5)
         elif opts['decay']=='polynomial':
             learning_rate=tf.train.polynomial_decay(learning_rate,global_step,decay_steps,learning_rate/100)
+        elif opts['decay']=='sqrt':
+            learning_rate=learning_rate/tf.sqrt(global_step_float+100)
         elif opts['decay']=='piecewise_constant':
             raise ValueError('piecewise_constant rate decay needs work')
 
-        tf.summary.scalar('learning_rate',learning_rate)
+        if opts['tensorboard']:
+            tf.summary.scalar('learning_rate',learning_rate)
 
         # set optimizer
 
@@ -299,56 +349,67 @@ for partition in range(0,args['common'].partitions+1):
                 v_update = tf.assign(v,v2)
                 update_clipper = tf.group(m_update,v_update)
 
+                if opts['tensorboard']:
+                    tf.summary.scalar('m',m)
+                    tf.summary.scalar('v',v)
+                    tf.summary.scalar('m_unbiased',m_unbiased)
+                    tf.summary.scalar('v_unbiased',v_unbiased)
+
             elif opts['median']:
-                burn_in = 1000
+                burn_in = opts['burn_in']
+                window_size = opts['window_size']
+                percentile=opts['clip_percentile']
                 epsilon = 1e-9
                 def get_median(v):
                     v = tf.reshape(v, [-1])
                     m = v.get_shape()[0]//2
-                    return tf.nn.top_k(v, m).values[m-1]
+                    return tf.nn.top_k(v, m).loss_values[m-1]
                 print('global_norm=',tf.reshape(global_norm,[1]).get_shape())
-                ms = tf.Variable(tf.zeros([burn_in]),trainable=False)
-                ms_update = tf.assign(ms[tf.mod(global_step,burn_in)],global_norm)
+                ms = tf.Variable(tf.zeros([window_size]),trainable=False)
+                ms_update = tf.assign(ms[tf.mod(global_step,window_size)],global_norm)
                 vs = ms*ms
-                m = tf.contrib.distributions.percentile(ms,75)
-                ms_median = tf.contrib.distributions.percentile(ms,50)
-                v = tf.contrib.distributions.percentile(
-                        tf.abs(ms - ms_median),
-                        50
-                        )
-                #v = tf.contrib.distributions.percentile(ms*ms,50)
-                #m = tf.reduce_mean(ms)
-                #v = tf.reduce_mean(ms*ms)
-                m_unbiased = m
-                v_unbiased = v
-                clip = tf.cond(global_step<burn_in,
-                        lambda: global_norm,
-                        lambda: m_unbiased+epsilon+(v_unbiased)*opts['num_stddevs']/math.sqrt(opts['batch_size'])/2
-                        )
+                print('ms=',ms.get_shape())
+                ms_trimmed = ms[0:tf.minimum(window_size,global_step+1)]
+
+                m=tf.contrib.distributions.percentile(ms_trimmed,50)
+                m_unbiased=m
+                clip=tf.contrib.distributions.percentile(ms_trimmed,percentile)
+                #clip = tf.cond(global_step<burn_in,
+                        #lambda: tf.maximum(global_norm,clip_raw),
+                        #lambda: clip_raw
+                        #)
                 update_clipper = tf.group(ms_update)
 
-            tf.summary.scalar('m',m)
-            tf.summary.scalar('v',v)
-            tf.summary.scalar('m_unbiased',m_unbiased)
-            tf.summary.scalar('v_unbiased',v_unbiased)
-            tf.summary.scalar('global_norm',global_norm)
-            tf.summary.scalar('clip',clip)
+            if opts['tensorboard']:
+                tf.summary.scalar('global_norm',global_norm)
+                tf.summary.scalar('clip',clip)
 
             if opts['robust']=='none':
                 gradients2=gradients
 
             elif opts['robust']=='global':
-                clip = tf.cond(
-                        clip>=global_norm,
-                        lambda:clip,
-                        lambda:tf.Print(clip,[global_norm,clip,m_unbiased,m,v_unbiased,v],'clipped'),
-                        )
-                gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
-                #gradients2 = tf.cond(
-                        #clip>global_norm,
-                        #lambda:list(gradients),
-                        #lambda:map (lambda x:x*1000.0,gradients)
-                        #)
+                if opts['verbose']:
+                    clip = tf.cond(
+                            clip>=global_norm and global_step>burn_in,
+                            lambda:clip,
+                            lambda:tf.Print(clip,[global_norm,clip],'clipped'),
+                            )
+                if opts['clip_method']=='soft':
+                    gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
+                elif opts['clip_method']=='hard':
+                    gradients2=[]
+                    for grad in gradients:
+                        print('grad=',grad)
+                        if grad==None:
+                            grad2=None
+                        else:
+                            grad2=tf.cond(
+                                    global_norm>clip,
+                                    lambda:tf.zeros(grad.get_shape()),
+                                    #lambda:tf.zeros(grad.get_shape()),
+                                    lambda:grad
+                                    )
+                        gradients2.append(grad2)
 
             elif opts['robust']=='local':
                 gradients2=[]
@@ -382,25 +443,30 @@ for partition in range(0,args['common'].partitions+1):
                 global_step=global_step)
         train_op = tf.group(grad_updates,update_clipper)
 
-        with tf.name_scope('batch/'):
-            for grad,var in grads_and_vars:
-                tf.summary.histogram(var.name+'_grad',grad)
-            for grad,var in grads_and_vars2:
-                tf.summary.histogram(var.name+'_grad_rob',grad)
+        if opts['tensorboard']:
+            with tf.name_scope('batch/'):
+                for grad,var in grads_and_vars:
+                    tf.summary.histogram(var.name+'_grad',grad)
+                for grad,var in grads_and_vars2:
+                    tf.summary.histogram(var.name+'_grad_rob',grad)
 
         ########################################
         print('  creating tensorflow session')
 
-        values=[]
-        updates=[]
-        for graph in graphs[partition]:
-            value,update=graph.add_summary()
-            updates+=update
-            values+=value
-        updates=tf.group(*updates)
+        loss_values=[]
+        loss_updates=[]
+        for loss in tf.get_default_graph().get_collection(tf.GraphKeys.LOSSES):
+            with tf.name_scope('batch/'):
+                tf.summary.scalar(loss.name,loss,collections=['batch'])
+            with tf.name_scope('epoch/'):
+                value,update=tf.contrib.metrics.streaming_mean(loss)
+                loss_values.append(value)
+                loss_updates.append(update)
+                tf.summary.scalar(loss.name,value,collections=['epoch'])
+        loss_updates=tf.group(*loss_updates)
 
-        #summary_batch = tf.summary.merge_all(key='batch')
-        summary_batch = tf.summary.merge_all()
+        summary_batch = tf.summary.merge_all(key='batch')
+        #summary_batch = tf.summary.merge_all()
         summary_epoch = tf.summary.merge_all(key='epoch')
 
         def reset_summary():
@@ -416,35 +482,65 @@ for partition in range(0,args['common'].partitions+1):
 
             # create a log dir
 
-            opts_important={}
-            for opt in ['batch_size','robust','num_stddevs','m_alpha','v_alpha','learning_rate','optimizer']: #,'noise','label_corruption']:
-                opts_important[opt]=opts[opt]
-            opts_important_str=str(opts_important).translate(None,"{}: '")
+            dirname_opts={}
+            for opt in args['common'].dirname_opts:
+                dirname_opts[opt]=opts[opt]
+            dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
 
             import hashlib
             import shutil
             optshash=hashlib.sha224(str(opts)).hexdigest()
-            dirname = 'optshash='+optshash+'-'+opts_important_str
+            dirname = 'optshash='+optshash+'-'+dirname_opts_str
             log_dir = args['common'].log_dir+'/'+dirname
             shutil.rmtree(log_dir,ignore_errors=True)
             writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
             writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
             print('    log_dir = '+log_dir)
 
-            # create a symlink to the logdir
+            # create symlinks to the log_dir
 
-            #symlink=args['common'].log_dir+'/recent'
-            #try:
-                #os.remove(symlink)
-            #except:
-                #pass
-            #os.symlink(dirname,symlink)
-            #print('    symlink = '+symlink)
+            symlink=args['common'].log_dir+'/recent'
+            try:
+                os.remove(symlink)
+            except:
+                pass
+            try:
+                os.symlink(dirname,symlink)
+                print('    symlink = '+symlink)
+            except:
+                print('    failed to create symlink')
+
+            # misc files in log_dir
 
             with open(log_dir+'/opts.txt','w') as f:
                 f.write('opts = '+str(opts))
 
-            norms_file=open(log_dir+'/norms.txt','w')
+            file_batch=open(log_dir+'/batch.txt','w')
+            file_epoch=open(log_dir+'/epoch.txt','w')
+
+            ########################################
+            if opts['do_sklearn']:
+                from sklearn import linear_model
+
+                train_X=[]
+                train_Y=[]
+                sess.run(iterator.make_initializer(data.train))
+                try:
+                    while True:
+                        X,Y=sess.run([x_,y_])
+                        train_X.append(X)
+                        train_Y.append(np.argmax(Y,axis=1))
+                except tf.errors.OutOfRangeError: 
+                    train_X=np.concatenate(train_X,axis=0)
+                    train_Y=np.concatenate(train_Y,axis=0)
+
+                logreg = linear_model.LogisticRegression(C=1/opts['l2'])
+                logreg.fit(train_X,train_Y)
+                print('logreg score=',logreg.score(data.test_X,np.argmax(data.test_Y,axis=1)))
+
+                ransac = linear_model.LogisticRegression(C=1/opts['l2'])
+                ransac.fit(train_X,train_Y)
+                print('ransac score=',ransac.score(data.test_X,np.argmax(data.test_Y,axis=1)))
 
             ########################################
             print('  training')
@@ -457,12 +553,15 @@ for partition in range(0,args['common'].partitions+1):
                     try:
                         reset_summary()
                         while True:
-                            loss_res,summary,y,z,norm,norm2,ave,stddev,_,_=sess.run([loss,summary_batch,y_argmax_,z_,global_norm,clip,m_unbiased,v_unbiased,updates,train_op])
-                            writer_train.add_summary(summary, global_step.eval())
-                            print('    step=%d, loss=%g, id=%s, label=%s, norm=%g/%g               '%(global_step.eval(),loss_res,str(z),str(y),norm,norm2))
+                            tracker_ops=[global_step,z_,global_norm,clip]+loss_values
+                            loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op])
+                            print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
                             if not opts['verbose']:
                                 print('\033[F',end='')
-                            norms_file.write('%d %d %g %g %g %g\n'%(global_step.eval(),z,norm,norm2,ave,stddev))
+                            nextline=' '.join(map(str,tracker_res))
+                            file_batch.write(nextline+'\n')
+                            if opts['tensorboard']:
+                                writer_train.add_summary(summary, global_step.eval())
                     except tf.errors.OutOfRangeError: 
                         summary=sess.run(summary_epoch)
                         writer_train.add_summary(summary,global_step.eval())
@@ -472,13 +571,21 @@ for partition in range(0,args['common'].partitions+1):
                 try:
                     reset_summary()
                     while True:
-                        sess.run(updates)
+                        sess.run(loss_updates)
                 except tf.errors.OutOfRangeError: 
-                    res,summary=sess.run([values,summary_epoch])
-                    writer_test.add_summary(summary,global_step.eval())
+                    res,summary=sess.run([loss_values,summary_epoch])
+                    if opts['tensorboard']:
+                        writer_test.add_summary(summary,global_step.eval())
+
+                    nextline=str(epoch)+' '+' '.join(map(str,res))
+                    file_epoch.write(nextline+'\n')
 
                     #if not opts['verbose'] and epoch!=0:
                         #print('\033[F',end='')
                     print('  epoch: %d    '%epoch,res,'         ')
 
+            
+                #vars=locals().copy()
+                #vars.update(globals())
+                #import code; code.interact(local=vars) 
 

@@ -7,19 +7,20 @@ def modify_parser(subparsers):
     parser.add_argument('--numdp',type=interval(int),default=60000)
     parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
-
     parser.add_argument('--seed',type=interval(int),default=0)
-    parser.add_argument('--label_corruption',type=interval(int),default=0)
-    parser.add_argument('--noise',type=interval(float),default=0)
-    parser.add_argument('--loud',type=interval(int),default=0)
-    parser.add_argument('--ones',type=interval(int),default=0)
 
 def init(args):
 
     global train
-    global test 
-    global dimX
-    global dimY
+    global train_numdp
+    global train_X
+    global train_Y
+    global test
+    global test_numdp
+    global test_X
+    global test_Y
+    global dimX 
+    global dimY 
 
     import tensorflow as tf
     from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
@@ -40,50 +41,50 @@ def init(args):
 
     # training data
 
-    X = np.concatenate([datasets.train._images.reshape([55000]+dimX),
+    train_X = np.concatenate([datasets.train._images.reshape([55000]+dimX),
                         datasets.validation._images.reshape([5000]+dimX)])
-    Y = np.eye(10)[np.concatenate([datasets.train._labels,
+    train_Y = np.eye(10)[np.concatenate([datasets.train._labels,
                                    datasets.validation._labels])]
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
-    np.random.shuffle(X)
+    np.random.shuffle(train_X)
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
-    np.random.shuffle(Y)
+    np.random.shuffle(train_Y)
 
     if args['numdp_balanced']:
-        Yargmax = np.argmax(Y,axis=1)
+        Yargmax = np.argmax(train_Y,axis=1)
         numdp_per_class=args['numdp']/10
         allIndices=[]
         for i in range(0,10):
             arr,=np.where(Yargmax==i)
             allIndices += np.ndarray.tolist(arr[:numdp_per_class])
-        X = X[allIndices]
-        Y = Y[allIndices]
+        train_X = train_X[allIndices]
+        train_Y = train_Y[allIndices]
 
         random.seed(args['seed'])
         np.random.seed(args['seed'])
-        np.random.shuffle(X)
+        np.random.shuffle(train_X)
 
         random.seed(args['seed'])
         np.random.seed(args['seed'])
-        np.random.shuffle(Y)
+        np.random.shuffle(train_Y)
 
     else:
-        X = X[0:args['numdp'],...]
-        Y = Y[0:args['numdp']]
+        train_X = train_X[0:args['numdp'],...]
+        train_Y = train_Y[0:args['numdp']]
 
     Id = np.array(range(0,args['numdp']))
-    train=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y),Id))
+    train=tf.data.Dataset.from_tensor_slices((np.float32(train_X),np.float32(train_Y),Id))
 
     # testing data
 
-    X = datasets.test._images.reshape([10000]+dimX)
-    X = X[0:args['numdp_test'],...]
-    Y = np.eye(10)[datasets.test._labels]
-    Y = Y[0:args['numdp_test']]
+    test_X = datasets.test._images.reshape([10000]+dimX)
+    test_X = test_X[0:args['numdp_test'],...]
+    test_Y = np.eye(10)[datasets.test._labels]
+    test_Y = test_Y[0:args['numdp_test']]
     Id = np.array(range(0,args['numdp_test']))
-    test=tf.data.Dataset.from_tensor_slices((np.float32(X),np.float32(Y),Id))
+    test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),Id))
 

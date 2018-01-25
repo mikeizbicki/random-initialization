@@ -11,7 +11,7 @@ def modify_parser(subparsers):
     parser_weights.add_argument('--abs',type=bool,default=False)
     parser_weights.add_argument('--normalize',type=str,default='False')
 
-    parser_weights.add_argument('--loss',choices=['mse','xentropy'],default='xentropy')
+    parser_weights.add_argument('--loss',choices=['mse','xentropy','huber','absdiff'],default='xentropy')
     parser_weights.add_argument('--l2',type=interval(float),default=1e-6)
     parser_weights.add_argument('--l1',type=interval(float),default=0.0)
 
@@ -47,6 +47,8 @@ def loss(args,y_,y):
         tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
 
         mse = tf.losses.mean_squared_error(y_,y)
+        huber = tf.losses.huber_loss(y_,y)
+        absdiff = tf.losses.absolute_difference(y_,y)
 
         argmax_y =tf.argmax(y ,axis=1)
         argmax_y_=tf.argmax(y_,axis=1)

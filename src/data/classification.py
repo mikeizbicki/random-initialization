@@ -7,12 +7,8 @@ def modify_parser(subparsers):
     parser.add_argument('--numdp',type=interval(int),default=100)
     parser.add_argument('--numdp_test',type=interval(int),default=100)
     parser.add_argument('--dimX',type=interval(int),default=[100],nargs='*')
-    parser.add_argument('--dimY',type=interval(int),default=2)
-    
     parser.add_argument('--dimX_nuisance',type=interval(int),nargs='+',default=[0])
-    parser.add_argument('--noise',type=interval(int),default=0)
-    parser.add_argument('--label_corruption',type=interval(int),default=0)
-    parser.add_argument('--unit_norm',action='store_true')
+    parser.add_argument('--dimY',type=interval(int),default=2)
 
     parser.add_argument('--seed',type=int,default=0)
 
@@ -22,7 +18,13 @@ def init(args):
     import random
 
     global train
+    global train_numdp
+    global train_X
+    global train_Y
     global test
+    global test_numdp
+    global test_X
+    global test_Y
     global dimX 
     global dimY 
 
@@ -61,9 +63,11 @@ def init(args):
         Id = np.array(range(0,numdp))
         return np.float32(X),np.float32(Y),Id
 
-    X,Y,Id=make_data(args['numdp'],args['seed'])
-    train=tf.data.Dataset.from_tensor_slices((X,Y,Id))
+    train_numdp=args['numdp']
+    train_X,train_Y,Id=make_data(args['numdp'],args['seed'])
+    train=tf.data.Dataset.from_tensor_slices((train_X,train_Y,Id))
 
-    X,Y,Id=make_data(args['numdp_test'],args['seed']+1)
-    test=tf.data.Dataset.from_tensor_slices((X,Y,Id))
+    test_numdp=args['numdp_test']
+    test_X,test_Y,Id=make_data(args['numdp_test'],args['seed']+1)
+    test=tf.data.Dataset.from_tensor_slices((test_X,test_Y,Id))
 
