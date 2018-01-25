@@ -64,7 +64,6 @@ subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
 subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
-subparser_optimizer.add_argument('--loss',choices=['xentropy','mse','huber','absdiff'],default='xentropy')
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batch_size',type=interval(int),default=5)
 subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
