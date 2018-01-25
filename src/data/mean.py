@@ -90,10 +90,16 @@ def init(args):
     test=tf.data.Dataset.from_tensor_slices((test_X,test_Y,Id))
 
     global mu_hat
-    mu_hat = np.average(train_Y,axis=0).reshape([1,dimY])
-    print('|mu-mu_hat|^2=',np.sum((mu-mu_hat)**2))
+    global mu_hat_mse
+    mu_hat=np.average(train_Y,axis=0).reshape([1,dimY])
+    mu_hat_mse=np.sum((mu-mu_hat)**2)
+    print('|mu-mu_hat|^2=',mu_hat_mse)
 
     global mu_med
+    global mu_med_mse
     mu_med=np.median(train_Y,axis=0).reshape([1,dimY])
-    print('|mu-mu_med|^2=',np.sum((mu-mu_med)**2))
+    mu_med_mse=np.sum((mu-mu_med)**2)
+    print('|mu-mu_med|^2=',mu_med_mse)
 
+    global naive_accuracies
+    naive_accuracies=[mu_hat_mse,mu_med_mse]

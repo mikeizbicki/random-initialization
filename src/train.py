@@ -51,7 +51,7 @@ subparser_common.add_argument('--seed_node',type=int,default=0)
 subparser_common.add_argument('--seed_np',type=int,default=0)
 subparser_common.add_argument('--verbose',action='store_true',default=False)
 subparser_common.add_argument('--do_sklearn',action='store_true')
-
+subparser_common.add_argument('--naive_mean',action='store_true')
 
 subparser_log = subparser_common.add_argument_group('logging options')
 subparser_log.add_argument('--log_dir',type=str,default='log')
@@ -517,6 +517,7 @@ for partition in range(0,args['common'].partitions+1):
 
             file_batch=open(log_dir+'/batch.txt','w')
             file_epoch=open(log_dir+'/epoch.txt','w')
+            file_results=open(log_dir+'/results.txt','w')
 
             ########################################
             if opts['do_sklearn']:
@@ -541,6 +542,9 @@ for partition in range(0,args['common'].partitions+1):
                 ransac = linear_model.LogisticRegression(C=1/opts['l2'])
                 ransac.fit(train_X,train_Y)
                 print('ransac score=',ransac.score(data.test_X,np.argmax(data.test_Y,axis=1)))
+
+            if opts['naive_mean']:
+                file_results.write(' '.join(map(str,data.naive_accuracies))+' ')
 
             ########################################
             print('  training')
@@ -588,4 +592,5 @@ for partition in range(0,args['common'].partitions+1):
                 #vars=locals().copy()
                 #vars.update(globals())
                 #import code; code.interact(local=vars) 
-
+            
+            file_results.write(' '.join(map(str,res))+'\n')
