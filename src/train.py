@@ -572,8 +572,8 @@ for partition in range(0,args['common'].partitions+1):
                         while True:
                             tracker_ops=[global_step,z_,global_norm,clip]+loss_values
                             loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op])
-                            print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
                             if not opts['verbose']:
+                                print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
                                 print('\033[F',end='')
                             nextline=' '.join(map(str,tracker_res))
                             nextline=filter(lambda x: x not in '[],', nextline)
