@@ -10,6 +10,7 @@ import pkgutil
 import sklearn
 import tflearn
 import sys
+sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
 
 ########################################
 print('processing cmdline args')

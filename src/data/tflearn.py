@@ -2,8 +2,8 @@ def modify_parser(subparsers):
     import argparse
     from interval import interval
 
-    parser = subparsers.add_parser('tflearn-image', help='toy deep learning image datasets from tflearn library')
-    parser.add_argument('--name',choices=['cifar10','cifar100','mnist','oxflower17','svhn','titanic'])
+    parser = subparsers.add_parser('tflearn', help='toy deep learning image datasets from tflearn library')
+    parser.add_argument('--name',choices=['cifar10','cifar100','imdb','mnist','oxflower17','svhn','titanic'])
     parser.add_argument('--data_dir',type=str,default='data/tflearn')
     parser.add_argument('--numdp',type=interval(int),default=1e10)
     parser.add_argument('--numdp_balanced',action='store_true')
@@ -36,6 +36,14 @@ def init(args):
         (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
     elif args['name']=='mnist':
         train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+    elif args['name']=='imdb':
+        (train_X, train_Y), _, (test_X, test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl')
+        train_X = tflearn.data_utils.pad_sequences(train_X, maxlen=100, value=0.)
+        train_Y = tflearn.data_utils.to_categorical(train_Y,nb_classes=2)
+        test_Y = tflearn.data_utils.to_categorical(test_Y,nb_classes=2)
+        test_X = tflearn.data_utils.pad_sequences(test_X, maxlen=100, value=0.)
+        train_Y = np.argmax(train_Y,axis=1)
+        test_Y = np.argmax(test_Y,axis=1)
     else:
         raise ValueError(args['name'] + ' not yet implemented')
 
