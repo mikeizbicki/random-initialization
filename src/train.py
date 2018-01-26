@@ -402,12 +402,12 @@ for partition in range(0,args['common'].partitions+1):
                 gradients2=gradients
 
             elif opts['robust']=='global':
-                if opts['verbose']:
-                    clip = tf.cond(
-                            clip>=global_norm and global_step>burn_in,
-                            lambda:clip,
-                            lambda:tf.Print(clip,[global_norm,clip],'clipped'),
-                            )
+                #if opts['verbose']:
+                    #clip = tf.cond(
+                            #clip>=global_norm,
+                            #lambda:clip,
+                            #lambda:tf.Print(clip,[global_norm,clip],'clipped'),
+                            #)
                 if opts['clip_method']=='soft':
                     gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
                 elif opts['clip_method']=='hard':
@@ -419,7 +419,6 @@ for partition in range(0,args['common'].partitions+1):
                             grad2=tf.cond(
                                     global_norm>clip,
                                     lambda:tf.zeros(grad.get_shape()),
-                                    #lambda:tf.zeros(grad.get_shape()),
                                     lambda:grad
                                     )
                         gradients2.append(grad2)

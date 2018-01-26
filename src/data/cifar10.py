@@ -4,7 +4,7 @@ def modify_parser(subparsers):
 
     parser = subparsers.add_parser('cifar10', help='a small image classification dataset')
     parser.add_argument('--data_dir',type=str,default='data/cifar10')
-    parser.add_argument('--numdp',type=interval(int),default=60000)
+    parser.add_argument('--numdp',type=interval(int),default=50000)
     parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
     parser.add_argument('--seed',type=interval(int),default=0)
@@ -19,8 +19,8 @@ def init(args):
     global test_numdp
     global test_X
     global test_Y
-    global dimX 
-    global dimY 
+    global dimX
+    global dimY
 
     import tensorflow as tf
     from tflearn.datasets import cifar10
