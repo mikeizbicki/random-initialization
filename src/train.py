@@ -62,6 +62,7 @@ subparser_preprocess = subparser_common.add_argument_group('data preprocessing o
 subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
 subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
 subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
+subparser_preprocess.add_argument('--max_Y',type=interval(int),default=0)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
@@ -196,17 +197,27 @@ for partition in range(0,args['common'].partitions+1):
 
             gaussian_X_norms=tf.random_normal([data.train_numdp]+data.dimX)
             def gaussian_X(x,y,id):
-                if opts['gaussian_X']>0:
-                    x2=gaussian_X_norms[id,...]*tf.norm(x)
-                else:
-                    x2=x
+                x2=tf.cond(
+                        opts['gaussian_X']>id,
+                        lambda:gaussian_X_norms[id,...]*tf.norm(x),
+                        lambda:x
+                        )
                 return (x2,y,id)
 
             def zero_Y(x,y,id):
-                if opts['zero_Y']>0:
-                    y2=0*y
-                else:
-                    y2=y
+                y2=tf.cond(
+                        opts['zero_Y']>id,
+                        lambda:0*y,
+                        lambda:y
+                        )
+                return (x,y2,id)
+
+            def max_Y(x,y,id):
+                y2=tf.cond(
+                        opts['max_Y']>id,
+                        lambda:data.train_Y_max,
+                        lambda:y
+                        )
                 return (x,y2,id)
 
             def label_corruption(x,y,id):
@@ -227,6 +238,7 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.map(label_corruption)
             data.train = data.train.map(gaussian_X)
             data.train = data.train.map(zero_Y)
+            data.train = data.train.map(max_Y)
             data.train = data.train.shuffle(
                     data.train_numdp,
                     seed=0
@@ -562,6 +574,7 @@ for partition in range(0,args['common'].partitions+1):
                             if not opts['verbose']:
                                 print('\033[F',end='')
                             nextline=' '.join(map(str,tracker_res))
+                            nextline=filter(lambda x: x not in '[],', nextline)
                             file_batch.write(nextline+'\n')
                             if opts['tensorboard']:
                                 writer_train.add_summary(summary, global_step.eval())
@@ -581,6 +594,7 @@ for partition in range(0,args['common'].partitions+1):
                         writer_test.add_summary(summary,global_step.eval())
 
                     nextline=str(epoch)+' '+' '.join(map(str,res))
+                    nextline=filter(lambda x: x not in '[],', nextline)
                     file_epoch.write(nextline+'\n')
 
                     #if not opts['verbose'] and epoch!=0:

@@ -27,16 +27,23 @@ def init(args):
     global dimX 
     global dimY 
 
+    regression=['boston','linnerud','diabetes']
+    classification=['iris','digits','wine','breast_cancer']
+
     load_data=eval('datasets.load_'+args['name'])
-    Xall,Yargmax=load_data(True)
-    numdp=Yargmax.size
+    Xall,Yargmax=load_data(return_X_y=True)
+    numdp=Yargmax.shape[0]
     dimX=list(Xall.shape)[1:]
-    if Yargmax.dtype!=np.float64:
+    if args['name'] in classification:
         dimY=np.amax(Yargmax,axis=0)+1
         Yall = np.eye(dimY)[Yargmax]
-    else:
-        dimY = 1
-        Yall = Yargmax.reshape((Yargmax.shape[0],1))
+    elif args['name'] in regression:
+        print('Yargmax=',Yargmax.shape)
+        try:
+            dimY=Yargmax.shape[1]
+        except:
+            dimY=1
+        Yall = Yargmax.reshape([Yargmax.shape[0],dimY])
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
@@ -61,3 +68,6 @@ def init(args):
     test_Y=Yall[train_numdp:,...]
     test_Id = np.array(range(0,test_numdp))
     test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),test_Id))
+
+    global train_Y_max
+    train_Y_max = np.float32(np.amax(train_Y,axis=0))

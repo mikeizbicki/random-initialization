@@ -2,7 +2,8 @@ def modify_parser(subparsers):
     import argparse
     from interval import interval
 
-    parser = subparsers.add_parser('classification', help='generate a synthetic dataset for binary classification')
+    parser = subparsers.add_parser('synthetic', help='generate a synthetic dataset')
+    parser.add_argument('--type',choices=['regression','classification'],default='classification')
     parser.add_argument('--variance',type=interval(float),default=1)
     parser.add_argument('--numdp',type=interval(int),default=100)
     parser.add_argument('--numdp_test',type=interval(int),default=100)
@@ -50,16 +51,19 @@ def init(args):
         random.seed(seed)
         np.random.seed(seed)
 
-        Y = np.random.multinomial(1,[1/float(dimY)]*dimY,size=[numdp])
-        X = np.zeros([numdp]+dimX_orig)
-        for i in range(0,numdp):
-            Yval = np.nonzero(Y[i])[0][0]
-            X[i,...] = mu[...,Yval] + np.random.normal(size=[1]+dimX_orig)
-            #print('Yval=',Yval,'Y=',Y[i,...],'Xval=',X[i,...])
+        if args['type']=='classification':
+            Y = np.random.multinomial(1,[1/float(dimY)]*dimY,size=[numdp])
+            X = np.zeros([numdp]+dimX_orig)
+            for i in range(0,numdp):
+                Yval = np.nonzero(Y[i])[0][0]
+                X[i,...] = mu[...,Yval] + np.random.normal(size=[1]+dimX_orig)
+
+        elif args['type']=='regression':
+            X = np.random.uniform(size=[numdp]+dimX_orig)
+            Y = np.dot(X,mu)
+
         X = np.dot(X,projection)
-        #if args['unit_norm']:
-            #for i in range(0,numdp):
-                #X[i,...] /= np.linalg.norm(X[i,...])
+
         Id = np.array(range(0,numdp))
         return np.float32(X),np.float32(Y),Id
 
