@@ -2,8 +2,9 @@ def modify_parser(subparsers):
     import argparse
     from interval import interval
 
-    parser = subparsers.add_parser('mnist', help='a handwritten digit dataset')
-    parser.add_argument('--data_dir',type=str,default='data/mnist')
+    parser = subparsers.add_parser('tflearn-image', help='toy deep learning image datasets from tflearn library')
+    parser.add_argument('--name',choices=['cifar10','cifar100','mnist','oxflower17','svhn','titanic'])
+    parser.add_argument('--data_dir',type=str,default='data/tflearn')
     parser.add_argument('--numdp',type=interval(int),default=60000)
     parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=10000)
@@ -23,29 +24,38 @@ def init(args):
     global dimY 
 
     import tensorflow as tf
-    from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
+    import tflearn
     import numpy as np
     import random
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
-    datasets = read_data_sets(args['data_dir'],False)
 
-    class Dataset:
-        def __init__(self):
-            pass
+    
+    if args['name']=='cifar10':
+        (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
+    elif args['name']=='mnist':
+        train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+    else:
+        raise ValueError(args['name'] + ' not yet implemented')
 
-    dimX = [28,28,1]
-    dimY = 10
+    #load_data=tflearn.datasets.cifar10.load_data
+    #(train_X, train_Y), (test_X, test_Y) = load_data(dirname=args['data_dir'])
+
+    print('train_X=',train_X.shape)
+    print('train_Y=',train_Y.shape)
+
+    dimX=list(train_X.shape)[1:]
+    dimY=np.amax(train_Y,axis=0)+1
+    train_Y = np.eye(dimY)[train_Y]
+    test_Y = np.eye(dimY)[test_Y]
     numdp = args['numdp']
     train_numdp = numdp
 
-    # training data
+    print('dimX=',dimX)
+    print('dimY=',dimY)
 
-    train_X = np.concatenate([datasets.train._images.reshape([55000]+dimX),
-                        datasets.validation._images.reshape([5000]+dimX)])
-    train_Y = np.eye(10)[np.concatenate([datasets.train._labels,
-                                   datasets.validation._labels])]
+    # training data
 
     random.seed(args['seed'])
     np.random.seed(args['seed'])
@@ -82,10 +92,12 @@ def init(args):
 
     # testing data
 
-    test_X = datasets.test._images.reshape([10000]+dimX)
     test_X = test_X[0:args['numdp_test'],...]
-    test_Y = np.eye(10)[datasets.test._labels]
     test_Y = test_Y[0:args['numdp_test']]
+    #test_X = train_X
+    #test_Y = train_Y
     Id = np.array(range(0,args['numdp_test']))
     test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),Id))
+
+
 
