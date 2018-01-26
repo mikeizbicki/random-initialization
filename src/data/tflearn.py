@@ -5,9 +5,9 @@ def modify_parser(subparsers):
     parser = subparsers.add_parser('tflearn-image', help='toy deep learning image datasets from tflearn library')
     parser.add_argument('--name',choices=['cifar10','cifar100','mnist','oxflower17','svhn','titanic'])
     parser.add_argument('--data_dir',type=str,default='data/tflearn')
-    parser.add_argument('--numdp',type=interval(int),default=60000)
+    parser.add_argument('--numdp',type=interval(int),default=1e10)
     parser.add_argument('--numdp_balanced',action='store_true')
-    parser.add_argument('--numdp_test',type=interval(int),default=10000)
+    parser.add_argument('--numdp_test',type=interval(int),default=1e10)
     parser.add_argument('--seed',type=interval(int),default=0)
 
 def init(args):
@@ -20,8 +20,8 @@ def init(args):
     global test_numdp
     global test_X
     global test_Y
-    global dimX 
-    global dimY 
+    global dimX
+    global dimY
 
     import tensorflow as tf
     import tflearn
@@ -49,8 +49,8 @@ def init(args):
     dimY=np.amax(train_Y,axis=0)+1
     train_Y = np.eye(dimY)[train_Y]
     test_Y = np.eye(dimY)[test_Y]
-    numdp = args['numdp']
-    train_numdp = numdp
+    train_numdp = min(args['numdp'],train_X.shape[0])
+    test_numdp = min(args['numdp_test'],test_X.shape[0])
 
     print('dimX=',dimX)
     print('dimY=',dimY)
@@ -67,7 +67,7 @@ def init(args):
 
     if args['numdp_balanced']:
         Yargmax = np.argmax(train_Y,axis=1)
-        numdp_per_class=args['numdp']/10
+        numdp_per_class=train_numdp/dimY
         allIndices=[]
         for i in range(0,10):
             arr,=np.where(Yargmax==i)
@@ -84,19 +84,17 @@ def init(args):
         np.random.shuffle(train_Y)
 
     else:
-        train_X = train_X[0:args['numdp'],...]
-        train_Y = train_Y[0:args['numdp']]
+        train_X = train_X[0:train_numdp,...]
+        train_Y = train_Y[0:train_numdp]
 
-    Id = np.array(range(0,args['numdp']))
+    Id = np.array(range(0,train_numdp))
     train=tf.data.Dataset.from_tensor_slices((np.float32(train_X),np.float32(train_Y),Id))
 
     # testing data
 
-    test_X = test_X[0:args['numdp_test'],...]
-    test_Y = test_Y[0:args['numdp_test']]
-    #test_X = train_X
-    #test_Y = train_Y
-    Id = np.array(range(0,args['numdp_test']))
+    test_X = test_X[0:test_numdp,...]
+    test_Y = test_Y[0:test_numdp]
+    Id = np.array(range(0,test_numdp))
     test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),Id))
 
 

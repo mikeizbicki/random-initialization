@@ -246,7 +246,7 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.shuffle(
                     data.train_numdp,
                     seed=0
-                    ) 
+                    )
             data.train = data.train.batch(opts['batch_size'])
 
             #data.test = data.test.map(unit_norm)
@@ -403,12 +403,12 @@ for partition in range(0,args['common'].partitions+1):
                 gradients2=gradients
 
             elif opts['robust']=='global':
-                if opts['verbose']:
-                    clip = tf.cond(
-                            clip>=global_norm and global_step>burn_in,
-                            lambda:clip,
-                            lambda:tf.Print(clip,[global_norm,clip],'clipped'),
-                            )
+                #if opts['verbose']:
+                    #clip = tf.cond(
+                            #clip>=global_norm,
+                            #lambda:clip,
+                            #lambda:tf.Print(clip,[global_norm,clip],'clipped'),
+                            #)
                 if opts['clip_method']=='soft':
                     gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
                 elif opts['clip_method']=='hard':
@@ -420,7 +420,6 @@ for partition in range(0,args['common'].partitions+1):
                             grad2=tf.cond(
                                     global_norm>clip,
                                     lambda:tf.zeros(grad.get_shape()),
-                                    #lambda:tf.zeros(grad.get_shape()),
                                     lambda:grad
                                     )
                         gradients2.append(grad2)
@@ -526,12 +525,12 @@ for partition in range(0,args['common'].partitions+1):
 
             # misc files in log_dir
 
-            with open(log_dir+'/opts.txt','w') as f:
+            with open(log_dir+'/opts.txt','w',1) as f:
                 f.write('opts = '+str(opts))
 
-            file_batch=open(log_dir+'/batch.txt','w')
-            file_epoch=open(log_dir+'/epoch.txt','w')
-            file_results=open(log_dir+'/results.txt','w')
+            file_batch=open(log_dir+'/batch.txt','w',1)
+            file_epoch=open(log_dir+'/epoch.txt','w',1)
+            file_results=open(log_dir+'/results.txt','w',1)
 
             ########################################
             if opts['do_sklearn']:
@@ -545,7 +544,7 @@ for partition in range(0,args['common'].partitions+1):
                         X,Y=sess.run([x_,y_])
                         train_X.append(X)
                         train_Y.append(np.argmax(Y,axis=1))
-                except tf.errors.OutOfRangeError: 
+                except tf.errors.OutOfRangeError:
                     train_X=np.concatenate(train_X,axis=0)
                     train_Y=np.concatenate(train_Y,axis=0)
 
@@ -581,7 +580,7 @@ for partition in range(0,args['common'].partitions+1):
                             file_batch.write(nextline+'\n')
                             if opts['tensorboard']:
                                 writer_train.add_summary(summary, global_step.eval())
-                    except tf.errors.OutOfRangeError: 
+                    except tf.errors.OutOfRangeError:
                         summary=sess.run(summary_epoch)
                         writer_train.add_summary(summary,global_step.eval())
 
@@ -591,7 +590,7 @@ for partition in range(0,args['common'].partitions+1):
                     reset_summary()
                     while True:
                         sess.run(loss_updates)
-                except tf.errors.OutOfRangeError: 
+                except tf.errors.OutOfRangeError:
                     res,summary=sess.run([loss_values,summary_epoch])
                     if opts['tensorboard']:
                         writer_test.add_summary(summary,global_step.eval())
@@ -604,9 +603,9 @@ for partition in range(0,args['common'].partitions+1):
                         #print('\033[F',end='')
                     print('  epoch: %d    '%epoch,res,'         ')
 
-            
+
                 #vars=locals().copy()
                 #vars.update(globals())
-                #import code; code.interact(local=vars) 
-            
+                #import code; code.interact(local=vars)
+
             file_results.write(' '.join(map(str,res))+'\n')
