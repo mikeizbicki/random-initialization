@@ -9,14 +9,13 @@ def modify_parser(subparsers):
     subparser.add_argument('--l1',type=interval(float),default=0.0)
 
 
-def inference(x_,data,opts):
+def inference(x_,data,opts,is_training):
 
     import tensorflow as tf
     slim=tf.contrib.slim
     end_points = {}
    
     num_classes=data.dimY
-    is_training=False
     dropout_keep_prob=1.0 #0.5
 
     init = tf.contrib.layers.xavier_initializer(
@@ -38,26 +37,6 @@ def inference(x_,data,opts):
                            scope='dropout3')
         logits = slim.fully_connected(net, num_classes, activation_fn=None, weights_initializer=init,
                                     scope='fc4')
-
-    #with tf.name_scope('model'):
-#
-        #def conv_and_maxpool(x,n):
-            #w = tf.Variable(tf.random_normal([5, 5, 1, 32]))
-            #b = tf.Variable(tf.random_normal([32]))
-            #m = tf.nn.conv2d(x, w, strides=[1, strides, strides, 1], padding='SAME')
-            #y = tf.nn.bias_add(m1, b)
-            #k = 2
-            #return tf.nn.max_pool(y, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='SAME')
-#
-        #y1 = conv_and_maxpool(x,32)
-        #y2 = conv_and_maxpool(x,64)
-#
-        ## fully connected layer
-        #wd1 = tf.Variable(tf.random_normal([7*7*64, 1024]))
-        #bd1 = tf.Variable(tf.random_normal([1024]))
-        #fc1 = tf.reshape(conv2, [-1, weights['wd1'].get_shape().as_list()[0]])
-        #fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
-        #fc1 = tf.nn.relu(fc1)
    
     end_points['Logits'] = logits
    

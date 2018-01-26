@@ -260,7 +260,8 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-        y = module_model.inference(x_,data,opts)
+        is_training = tf.placeholder(tf.bool)
+        y = module_model.inference(x_,data,opts,is_training)
         y_argmax = tf.argmax(y)
         loss = module_model.loss(partitionargs['model'],y_,y)
 
@@ -572,7 +573,7 @@ for partition in range(0,args['common'].partitions+1):
                         reset_summary()
                         while True:
                             tracker_ops=[global_step,z_,global_norm,clip]+loss_values
-                            loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op])
+                            loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op],feed_dict={is_training:True})
                             if not opts['verbose']:
                                 print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
                                 print('\033[F',end='')
@@ -592,7 +593,7 @@ for partition in range(0,args['common'].partitions+1):
                     while True:
                         sess.run(loss_updates)
                 except tf.errors.OutOfRangeError:
-                    res,summary=sess.run([loss_values,summary_epoch])
+                    res,summary=sess.run([loss_values,summary_epoch],feed_dict={is_training:False})
                     if opts['tensorboard']:
                         writer_test.add_summary(summary,global_step.eval())
 

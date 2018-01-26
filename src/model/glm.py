@@ -18,7 +18,7 @@ def modify_parser(subparsers):
     parser_weights.add_argument('--l2',type=interval(float),default=1e-6)
     parser_weights.add_argument('--l1',type=interval(float),default=0.0)
 
-def inference(x_,data,opts,is_training=True):
+def inference(x_,data,opts,is_training):
     import tensorflow as tf
     import numpy as np
 
