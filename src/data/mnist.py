@@ -38,6 +38,7 @@ def init(args):
     dimX = [28,28,1]
     dimY = 10
     numdp = args['numdp']
+    train_numdp = numdp
 
     # training data
 

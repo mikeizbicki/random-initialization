@@ -195,7 +195,7 @@ for partition in range(0,args['common'].partitions+1):
             def unit_norm(x,y,id):
                 return (x/tf.norm(x),y,id)
 
-            gaussian_X_norms=tf.random_normal([data.train_numdp]+data.dimX)
+            gaussian_X_norms=tf.random_normal([opts['gaussian_X']]+data.dimX)
             def gaussian_X(x,y,id):
                 x2=tf.cond(
                         opts['gaussian_X']>id,
@@ -213,11 +213,14 @@ for partition in range(0,args['common'].partitions+1):
                 return (x,y2,id)
 
             def max_Y(x,y,id):
-                y2=tf.cond(
-                        opts['max_Y']>id,
-                        lambda:data.train_Y_max,
-                        lambda:y
-                        )
+                try:
+                    y2=tf.cond(
+                            opts['max_Y']>id,
+                            lambda:data.train_Y_max,
+                            lambda:y
+                            )
+                except AttributeError:
+                    y2=y
                 return (x,y2,id)
 
             def label_corruption(x,y,id):
@@ -410,7 +413,6 @@ for partition in range(0,args['common'].partitions+1):
                 elif opts['clip_method']=='hard':
                     gradients2=[]
                     for grad in gradients:
-                        print('grad=',grad)
                         if grad==None:
                             grad2=None
                         else:
