@@ -12,7 +12,7 @@ def modify_parser(subparsers):
     parser_weights.add_argument('--normalize',action='store_true')
     parser_weights.add_argument('--zerow',action='store_true')
 
-    parser_weights.add_argument('--loss',choices=['mse','xentropy','xentropy_tanh','huber','absdiff'],default='xentropy')
+    parser_weights.add_argument('--loss',choices=['mse','xentropy','xentropy_robust','huber','absdiff'],default='xentropy')
     #parser_weights.add_argument('--eval',choices=['mse','xentropy','accuracy'],default='accuracy')
 
     parser_weights.add_argument('--l2',type=interval(float),default=1e-6)
@@ -53,11 +53,22 @@ def loss(args,y_,y):
                     name='xentropy')
         tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy)
 
-        xentropy_tanh = tf.reduce_mean(
-                    tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=tf.tanh(y)),
-                    #tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y),
-                    name='xentropy')
-        tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy_tanh)
+        robustify = lambda x: tf.cond(
+                tf.linalg.norm(x)>1,
+                lambda:x/tf.sqrt(tf.linalg.norm(x)),
+                lambda:x)
+        #robustify = lambda x: tf.log(1/(1+tf.exp(x)+tf.exp(-x)))
+        #robustify = lambda x: tf.log(1/(1+tf.exp(x)+tf.exp(-x)))
+        xentropy_robust = tf.reduce_mean(
+                    tf.nn.softmax_cross_entropy_with_logits(labels=robustify(y_), logits=y),
+                    name='xentropy_robust')
+        tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy_robust)
+
+        #xentropy_tanh = tf.reduce_mean(
+                    #tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=tf.tanh(y)),
+                    ##tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y),
+                    #name='xentropy')
+        #tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy_tanh)
 
         mse = tf.losses.mean_squared_error(y_,y)
         huber = tf.losses.huber_loss(y_,y)
