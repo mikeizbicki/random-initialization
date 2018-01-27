@@ -10,6 +10,8 @@ def modify_parser(subparsers):
     parser.add_argument('--numdp_test',type=interval(int),default=1e10)
     parser.add_argument('--seed',type=interval(int),default=0)
 
+    parser.add_argument('--test_on_train',action='store_true')
+
 def init(args):
 
     global train
@@ -34,27 +36,28 @@ def init(args):
     
     if args['name']=='cifar10':
         (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
+        dimX=[32,32,3]
+        dimY=10
     elif args['name']=='mnist':
         train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+        dimX=[28,28,1]
+        dimY=10
     elif args['name']=='imdb':
-        (train_X, train_Y), _, (test_X, test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl')
+        (train_X, train_Y), _, (test_X, test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl',n_words=10000)
         train_X = tflearn.data_utils.pad_sequences(train_X, maxlen=100, value=0.)
         train_Y = tflearn.data_utils.to_categorical(train_Y,nb_classes=2)
         test_Y = tflearn.data_utils.to_categorical(test_Y,nb_classes=2)
         test_X = tflearn.data_utils.pad_sequences(test_X, maxlen=100, value=0.)
         train_Y = np.argmax(train_Y,axis=1)
         test_Y = np.argmax(test_Y,axis=1)
+        dimX=list(train_X.shape)[1:]
+        dimY=np.amax(train_Y,axis=0)+1
     else:
         raise ValueError(args['name'] + ' not yet implemented')
-
-    #load_data=tflearn.datasets.cifar10.load_data
-    #(train_X, train_Y), (test_X, test_Y) = load_data(dirname=args['data_dir'])
 
     print('train_X=',train_X.shape)
     print('train_Y=',train_Y.shape)
 
-    dimX=list(train_X.shape)[1:]
-    dimY=np.amax(train_Y,axis=0)+1
     train_Y = np.eye(dimY)[train_Y]
     test_Y = np.eye(dimY)[test_Y]
     train_numdp = min(args['numdp'],train_X.shape[0])
@@ -72,6 +75,10 @@ def init(args):
     random.seed(args['seed'])
     np.random.seed(args['seed'])
     np.random.shuffle(train_Y)
+
+    if args['test_on_train']:
+        test_X=train_X
+        test_Y=train_Y
 
     if args['numdp_balanced']:
         Yargmax = np.argmax(train_Y,axis=1)

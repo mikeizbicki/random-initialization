@@ -5,7 +5,7 @@ def modify_parser(subparsers):
     subparser = subparsers.add_parser('lenet')
 
     subparser.add_argument('--loss',choices=['mse','xentropy'],default='xentropy')
-    subparser.add_argument('--dropout',type=interval(float),default=-0.5)
+    subparser.add_argument('--dropout',type=interval(float),default=0.5)
     subparser.add_argument('--l2',type=interval(float),default=1e-6)
     subparser.add_argument('--l1',type=interval(float),default=0.0)
 
@@ -17,7 +17,7 @@ def inference(x_,data,opts,is_training):
     end_points = {}
    
     num_classes=data.dimY
-    dropout_keep_prob=args['dropout']
+    dropout_keep_prob=opts['dropout']
 
     init = tf.contrib.layers.xavier_initializer(
             uniform=True,

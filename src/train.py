@@ -65,6 +65,8 @@ subparser_preprocess.add_argument('--label_corruption',type=interval(int),defaul
 subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
 subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
 subparser_preprocess.add_argument('--max_Y',type=interval(int),default=0)
+subparser_preprocess.add_argument('--pad_dim',type=interval(int),default=0)
+subparser_preprocess.add_argument('--pad_dim_numbad',type=interval(int),default=0)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
@@ -187,6 +189,7 @@ for partition in range(0,args['common'].partitions+1):
 
         global_step = tf.Variable(0, name='global_step',trainable=False)
         global_step_float=tf.cast(global_step,tf.float32)
+        is_training = tf.placeholder(tf.bool)
 
         ########################################
         print('  creating tensorflow model')
@@ -260,7 +263,24 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-        is_training = tf.placeholder(tf.bool)
+            if opts['pad_dim']>0:
+                pad_dim=opts['pad_dim']
+                x_=tf.pad(
+                        x_,
+                        [[0,0],[0,pad_dim],[0,pad_dim],[0,0]],
+                        constant_values=tf.cond(
+                                tf.logical_and(is_training,z_==0),
+                                lambda:0.75,
+                                lambda:0.25
+                                )
+                        )
+                data.dimX=data.dimX=[
+                        data.dimX[0]+pad_dim,
+                        data.dimX[1]+pad_dim,
+                        data.dimX[2]
+                        ]
+            print('x_=',x_.get_shape())
+
         y = module_model.inference(x_,data,opts,is_training)
         y_argmax = tf.argmax(y)
         loss = module_model.loss(partitionargs['model'],y_,y)
@@ -416,6 +436,7 @@ for partition in range(0,args['common'].partitions+1):
                 elif opts['clip_method']=='hard':
                     gradients2=[]
                     for grad in gradients:
+                        print('grad=',type(grad))
                         if grad==None:
                             grad2=None
                         else:
@@ -572,7 +593,7 @@ for partition in range(0,args['common'].partitions+1):
                     try:
                         reset_summary()
                         while True:
-                            tracker_ops=[global_step,z_,global_norm,clip]+loss_values
+                            tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
                             loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op],feed_dict={is_training:True})
                             if not opts['verbose']:
                                 print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
@@ -591,7 +612,7 @@ for partition in range(0,args['common'].partitions+1):
                 try:
                     reset_summary()
                     while True:
-                        sess.run(loss_updates)
+                        sess.run(loss_updates,feed_dict={is_training:False})
                 except tf.errors.OutOfRangeError:
                     res,summary=sess.run([loss_values,summary_epoch],feed_dict={is_training:False})
                     if opts['tensorboard']:
