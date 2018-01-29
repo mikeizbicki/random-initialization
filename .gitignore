@@ -1,4 +1,5 @@
 /data
+/tmp
 log
 log.old
 *.swp
