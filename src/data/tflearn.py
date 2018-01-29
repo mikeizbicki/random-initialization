@@ -40,6 +40,8 @@ def init(args):
         dimY=10
     elif args['name']=='mnist':
         train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+        train_X=train_X.reshape([55000,28,28,1])
+        test_X=test_X.reshape([10000,28,28,1])
         dimX=[28,28,1]
         dimY=10
     elif args['name']=='imdb':

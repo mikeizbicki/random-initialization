@@ -62,6 +62,7 @@ subparser_log.add_argument('--dirname_opts',type=str,default=[],nargs='*')
 subparser_log.add_argument('--dump_data',action='store_true')
 
 subparser_preprocess = subparser_common.add_argument_group('data preprocessing options')
+subparser_preprocess.add_argument('--triangle',type=interval(int),default=0)
 subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
 subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
 subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
@@ -71,18 +72,18 @@ subparser_preprocess.add_argument('--pad_dim_numbad',type=interval(int),default=
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
 subparser_optimizer.add_argument('--epochs',type=int,default=100)
-subparser_optimizer.add_argument('--batch_size',type=interval(int),default=5)
+subparser_optimizer.add_argument('--batch_size',type=interval(int),default=1)
 subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
 subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
 subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='sqrt')
 subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
-subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='adam')
+subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
 
 subparser_robust = subparser_common.add_argument_group('robustness options')
 subparser_robust.add_argument('--robust',choices=['none','global','local'],default='none')
 subparser_robust.add_argument('--no_median',action='store_true')
-subparser_robust.add_argument('--burn_in',type=interval(int),default=0)
-subparser_robust.add_argument('--window_size',type=interval(int),default=1000)
+subparser_robust.add_argument('--burn_in',type=interval(int),default=None)
+subparser_robust.add_argument('--window_size',type=interval(int),default=None)
 subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
 subparser_robust.add_argument('--clip_method',choices=['soft','hard'],default='soft')
 subparser_robust.add_argument('--m_alpha',type=interval(float),default=0.9)
@@ -230,9 +231,6 @@ for partition in range(0,args['common'].partitions+1):
                 return (x,y2,id)
 
             def label_corruption(x,y,id):
-                #y_corrupt=tf.ones(y.get_shape())-y
-                #y_corrupt=tf.concat([y[1:],y[:1]],axis=0)
-                #return (x,tf.cond(id>=opts['label_corruption'],lambda: y,lambda: y_corrupt),id)
                 if opts['label_corruption']>0:
                     y2=tf.cond(
                             id>=opts['label_corruption'],
@@ -243,11 +241,32 @@ for partition in range(0,args['common'].partitions+1):
                     y2=y
                 return (x,y2,id)
 
+            def pad_dim(x,y,id):
+                x2=tf.pad(
+                        x,
+                        [[0,opts['pad_dim']],[0,opts['pad_dim']],[0,0]],
+                        constant_values=0.5
+                        )
+                return (x2,y,id)
+
+            def triangle(x,y,id):
+                dimXnew=[28+opts['pad_dim'],28+opts['pad_dim']]
+                triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
+                triangle=triangle.reshape(dimXnew+[1])
+                x2=tf.cond(
+                        id<opts['triangle'],
+                        lambda:triangle,
+                        lambda:x
+                        )
+                return (x2,y,id)
+
             #data.train = data.train.map(unit_norm)
             data.train = data.train.map(label_corruption)
             data.train = data.train.map(gaussian_X)
             data.train = data.train.map(zero_Y)
             data.train = data.train.map(max_Y)
+            data.train = data.train.map(pad_dim)
+            data.train = data.train.map(triangle)
             data.train = data.train.shuffle(
                     data.train_numdp,
                     seed=0
@@ -255,6 +274,7 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.batch(opts['batch_size'])
 
             #data.test = data.test.map(unit_norm)
+            data.test = data.test.map(pad_dim)
             data.test = data.test.batch(opts['batch_size_test'])
 
             iterator = tf.data.Iterator.from_structure(
@@ -264,22 +284,11 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-            if opts['pad_dim']>0:
-                pad_dim=opts['pad_dim']
-                x_=tf.pad(
-                        x_,
-                        [[0,0],[0,pad_dim],[0,pad_dim],[0,0]],
-                        constant_values=tf.cond(
-                                tf.logical_and(is_training,z_==0),
-                                lambda:0.75,
-                                lambda:0.25
-                                )
-                        )
-                data.dimX=data.dimX=[
-                        data.dimX[0]+pad_dim,
-                        data.dimX[1]+pad_dim,
-                        data.dimX[2]
-                        ]
+            data.dimX=[
+                    data.dimX[0]+opts['pad_dim'],
+                    data.dimX[1]+opts['pad_dim'],
+                    data.dimX[2]
+                    ]
             print('x_=',x_.get_shape())
 
         y = module_model.inference(x_,data,opts,is_training)
@@ -394,8 +403,17 @@ for partition in range(0,args['common'].partitions+1):
                     tf.summary.scalar('v_unbiased',v_unbiased)
 
             else:
+                try:
+                    default_size=data.train_numdp
+                except:
+                    default_size=10000
                 burn_in = opts['burn_in']
+                if not burn_in:
+                    burn_in=default_size
                 window_size = opts['window_size']
+                if not window_size:
+                    window_size=default_size
+
                 percentile=opts['clip_percentile']
                 epsilon = 1e-9
                 def get_median(v):
@@ -612,7 +630,7 @@ for partition in range(0,args['common'].partitions+1):
 
                 # train one epoch on training set
                 if epoch>0:
-                    sess.run(iterator.make_initializer(data.train))
+                    sess.run(iterator.make_initializer(data.train),feed_dict={is_training:True})
                     try:
                         reset_summary()
                         while True:
@@ -631,7 +649,7 @@ for partition in range(0,args['common'].partitions+1):
                         writer_train.add_summary(summary,global_step.eval())
 
                 # evaluate on test set
-                sess.run(iterator.make_initializer(data.test))
+                sess.run(iterator.make_initializer(data.test),feed_dict={is_training:False})
                 try:
                     reset_summary()
                     while True:
