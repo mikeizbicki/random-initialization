@@ -111,9 +111,16 @@ def init(args):
     global mu_hat_star_mse
     train_Y_star = train_Y
     train_Y_star[0:int(train_numdp*args['corruption'])] -= mu_corrupt - mu
-    mu_hat_star=np.average(train_Y,axis=0).reshape([1,dimY])
+    mu_hat_star=np.average(train_Y_star,axis=0).reshape([1,dimY])
     mu_hat_star_mse=np.sum((mu-mu_hat_star)**2)
     print('|mu-mu_hat_star|^2=',mu_hat_star_mse)
 
+    global mu_hat_star2
+    global mu_hat_star2_mse
+    train_Y_star2 = train_Y[int(train_numdp*args['corruption']):]
+    mu_hat_star2=np.average(train_Y_star2,axis=0).reshape([1,dimY])
+    mu_hat_star2_mse=np.sum((mu-mu_hat_star2)**2)
+    print('|mu-mu_hat_star2|^2=',mu_hat_star2_mse)
+
     global naive_accuracies
-    naive_accuracies=[mu_hat_star_mse,mu_hat_mse,mu_med_mse]
+    naive_accuracies=[mu_hat_star_mse,mu_hat_star2_mse,mu_hat_mse,mu_med_mse]
