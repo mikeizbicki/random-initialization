@@ -5,6 +5,8 @@ def modify_parser(subparsers):
     from interval import interval
 
     parser = subparsers.add_parser('mean', help='generate a synthetic dataset for mean estimation')
+    parser.add_argument('--mu_scale',type=interval(float),default=1.0)
+    parser.add_argument('--mu_offset',type=interval(float),default=0.0)
     parser.add_argument('--scale',type=interval(float),default=1.0)
     parser.add_argument('--random_type',choices=['scale','entries','full'],default='entries')
     parser.add_argument('--randomness',choices=['normal','exponential','pareto','cauchy'],default='normal')
@@ -61,8 +63,12 @@ def init(args):
         cauchy      = lambda:np.dot(args['scale']*np.random.standard_cauchy(size=[1,dimY]),rot)
     random_generator = eval(args['randomness'])
 
-    mu = normal()
-    mu_corrupt = normal()
+    scale=args['mu_scale']
+    offset=args['mu_offset']*np.ones([1,dimY])
+    mu = offset + scale*normal()
+    #mu /= np.linalg.norm(mu)/scale
+    mu_corrupt = offset + scale*normal()
+    #mu_corrupt /= np.linalg.norm(mu_corrupt)/scale
 
     print('|mu-mu_corrupt|^2=',np.sum((mu-mu_corrupt)**2))
 
@@ -101,5 +107,13 @@ def init(args):
     mu_med_mse=np.sum((mu-mu_med)**2)
     print('|mu-mu_med|^2=',mu_med_mse)
 
+    global mu_hat_star
+    global mu_hat_star_mse
+    train_Y_star = train_Y
+    train_Y_star[0:int(train_numdp*args['corruption'])] -= mu_corrupt - mu
+    mu_hat_star=np.average(train_Y,axis=0).reshape([1,dimY])
+    mu_hat_star_mse=np.sum((mu-mu_hat_star)**2)
+    print('|mu-mu_hat_star|^2=',mu_hat_star_mse)
+
     global naive_accuracies
-    naive_accuracies=[mu_hat_mse,mu_med_mse]
+    naive_accuracies=[mu_hat_star_mse,mu_hat_mse,mu_med_mse]

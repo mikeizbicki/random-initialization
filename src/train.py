@@ -59,6 +59,7 @@ subparser_log = subparser_common.add_argument_group('logging options')
 subparser_log.add_argument('--log_dir',type=str,default='log')
 subparser_log.add_argument('--tensorboard',action='store_true')
 subparser_log.add_argument('--dirname_opts',type=str,default=[],nargs='*')
+subparser_log.add_argument('--dump_data',action='store_true')
 
 subparser_preprocess = subparser_common.add_argument_group('data preprocessing options')
 subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
@@ -79,7 +80,7 @@ subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam',
 
 subparser_robust = subparser_common.add_argument_group('robustness options')
 subparser_robust.add_argument('--robust',choices=['none','global','local'],default='none')
-subparser_robust.add_argument('--median',action='store_true')
+subparser_robust.add_argument('--no_median',action='store_true')
 subparser_robust.add_argument('--burn_in',type=interval(int),default=0)
 subparser_robust.add_argument('--window_size',type=interval(int),default=1000)
 subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
@@ -360,7 +361,7 @@ for partition in range(0,args['common'].partitions+1):
             opts['num_stddevs']*=stddev_modifier
             print('    opts[num_stddevs]=',opts['num_stddevs'])
 
-            if not opts['median']:
+            if opts['no_median']:
                 m_alpha = 0.999 # opts['m_alpha']
                 v_alpha = 0.999 # opts['v_alpha']
                 m_init=0.0
@@ -392,7 +393,7 @@ for partition in range(0,args['common'].partitions+1):
                     tf.summary.scalar('m_unbiased',m_unbiased)
                     tf.summary.scalar('v_unbiased',v_unbiased)
 
-            elif opts['median']:
+            else:
                 burn_in = opts['burn_in']
                 window_size = opts['window_size']
                 percentile=opts['clip_percentile']
@@ -479,6 +480,20 @@ for partition in range(0,args['common'].partitions+1):
                 global_step=global_step)
         train_op = tf.group(grad_updates,update_clipper)
 
+        #train_op = tf.cond(
+                #global_step<burn_in,
+                #lambda:tf.group(
+                    #update_clipper,
+                    #tf.assign(global_step,global_step+1)
+                    #),
+                #lambda:tf.group(
+                    #update_clipper,
+                    #optimizer.apply_gradients(
+                        #grads_and_vars2,
+                        #global_step=global_step)
+                    #)
+                #)
+
         if opts['tensorboard']:
             with tf.name_scope('batch/'):
                 for grad,var in grads_and_vars:
@@ -555,6 +570,14 @@ for partition in range(0,args['common'].partitions+1):
             file_epoch=open(log_dir+'/epoch.txt','w',1)
             file_results=open(log_dir+'/results.txt','w',1)
 
+            if opts['dump_data']:
+                import scipy.io
+                scipy.io.savemat(
+                        log_dir+'/data.mat',
+                        {'train_Y':data.train_Y,
+                         'mu':data.mu
+                        })
+
             ########################################
             if opts['do_sklearn']:
                 from sklearn import linear_model
@@ -595,7 +618,7 @@ for partition in range(0,args['common'].partitions+1):
                         while True:
                             tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
                             loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op],feed_dict={is_training:True})
-                            if not opts['verbose']:
+                            if opts['verbose']:
                                 print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
                                 print('\033[F',end='')
                             nextline=' '.join(map(str,tracker_res))
