@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 
+import collections
 import copy
 import itertools
 import math
@@ -265,8 +266,8 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.map(gaussian_X)
             data.train = data.train.map(zero_Y)
             data.train = data.train.map(max_Y)
-            data.train = data.train.map(pad_dim)
-            data.train = data.train.map(triangle)
+            #data.train = data.train.map(pad_dim)
+            #data.train = data.train.map(triangle)
             data.train = data.train.shuffle(
                     data.train_numdp,
                     seed=0
@@ -274,7 +275,7 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.batch(opts['batch_size'])
 
             #data.test = data.test.map(unit_norm)
-            data.test = data.test.map(pad_dim)
+            #data.test = data.test.map(pad_dim)
             data.test = data.test.batch(opts['batch_size_test'])
 
             iterator = tf.data.Iterator.from_structure(
@@ -284,11 +285,11 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-            data.dimX=[
-                    data.dimX[0]+opts['pad_dim'],
-                    data.dimX[1]+opts['pad_dim'],
-                    data.dimX[2]
-                    ]
+            #data.dimX=[
+                    #data.dimX[0]+opts['pad_dim'],
+                    #data.dimX[1]+opts['pad_dim'],
+                    #data.dimX[2]
+                    #]
             print('x_=',x_.get_shape())
 
         y = module_model.inference(x_,data,opts,is_training)

@@ -7,9 +7,9 @@ def modify_parser(subparsers):
     import argparse
     from interval import interval
 
-    parser = subparsers.add_parser('tflearn', help='toy deep learning image datasets from tflearn library')
-    parser.add_argument('--name',choices=['cifar10','cifar100','imdb','mnist','oxflower17','svhn','titanic'])
-    parser.add_argument('--data_dir',type=str,default='data/tflearn')
+    parser = subparsers.add_parser('sequence', help='sequence datasets')
+    parser.add_argument('--name',choices=['ptb'])
+    parser.add_argument('--data_dir',type=str,default='data/')
     parser.add_argument('--numdp',type=interval(int),default=1e10)
     parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=1e10)
@@ -38,35 +38,24 @@ def init(args):
     random.seed(args['seed'])
     np.random.seed(args['seed'])
 
-    
-    if args['name']=='cifar10':
-        (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
-        dimX=[32,32,3]
-        dimY=10
-    elif args['name']=='mnist':
-        train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
-        train_X=train_X.reshape([55000,28,28,1])
-        test_X=test_X.reshape([10000,28,28,1])
-        dimX=[28,28,1]
-        dimY=10
-    elif args['name']=='imdb':
-        (train_X, train_Y), _, (test_X, test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl',n_words=10000)
-        train_X = tflearn.data_utils.pad_sequences(train_X, maxlen=100, value=0.)
-        train_Y = tflearn.data_utils.to_categorical(train_Y,nb_classes=2)
-        test_Y = tflearn.data_utils.to_categorical(test_Y,nb_classes=2)
-        test_X = tflearn.data_utils.pad_sequences(test_X, maxlen=100, value=0.)
-        train_Y = np.argmax(train_Y,axis=1)
-        test_Y = np.argmax(test_Y,axis=1)
-        dimX=list(train_X.shape)[1:]
-        dimY=np.amax(train_Y,axis=0)+1
+    if args['name']=='ptb':
+        import urllib
+        urlroot='https://raw.githubusercontent.com/wojzaremba/lstm/master/data/'
+        for file in ['ptb.test.txt','ptb.train.txt','ptb.valid.txt']:
+            urllib.urlretrieve(urlroot+file,args['data_dir']+'/'+file)
+        train, _ , test, _ = ptb_raw_data(data_path=args['data_dir'])
+        train_X,train_Y=ptb_producer(train, 1, 1000, name=None)
+        test_X,test_Y=ptb_producer(test, 1, 1000, name=None)
+        dimX=train_X.get_shape()
+        dimY=1000
+        print('train_X',train_X.shape)
+        print('train_Y',train_Y.shape)
     else:
         raise ValueError(args['name'] + ' not yet implemented')
 
     print('train_X=',train_X.shape)
     print('train_Y=',train_Y.shape)
 
-    train_Y = np.eye(dimY)[train_Y]
-    test_Y = np.eye(dimY)[test_Y]
     train_numdp = min(args['numdp'],train_X.shape[0])
     test_numdp = min(args['numdp_test'],test_X.shape[0])
 
@@ -249,3 +238,4 @@ def ptb_producer(raw_data, batch_size, num_steps, name=None):
                          [batch_size, (i + 1) * num_steps + 1])
     y.set_shape([batch_size, num_steps])
     return x, y
+
