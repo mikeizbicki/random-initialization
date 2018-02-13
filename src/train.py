@@ -81,15 +81,13 @@ subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=10
 subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
 
 subparser_robust = subparser_common.add_argument_group('robustness options')
-subparser_robust.add_argument('--robust',choices=['none','global','local'],default='none')
-subparser_robust.add_argument('--no_median',action='store_true')
+subparser_robust.add_argument('--disable_robust',action='store_true')
+subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='batch')
+subparser_robust.add_argument('--clip_type',choices=['none','global','local'],default='none')
+subparser_robust.add_argument('--clip_activation',choices=['soft','hard'],default='soft')
+subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
 subparser_robust.add_argument('--burn_in',type=interval(int),default=None)
 subparser_robust.add_argument('--window_size',type=interval(int),default=None)
-subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
-subparser_robust.add_argument('--clip_method',choices=['soft','hard'],default='soft')
-subparser_robust.add_argument('--m_alpha',type=interval(float),default=0.9)
-subparser_robust.add_argument('--v_alpha',type=interval(float),default=0.9)
-subparser_robust.add_argument('--num_stddevs',type=interval(float),default=1)
 
 ####################
 
@@ -294,7 +292,7 @@ for partition in range(0,args['common'].partitions+1):
 
         y = module_model.inference(x_,data,opts,is_training)
         y_argmax = tf.argmax(y)
-        loss = module_model.loss(partitionargs['model'],y_,y)
+        loss,loss_per_dp = module_model.loss(partitionargs['model'],y_,y)
 
         if opts['tensorboard']:
             with tf.name_scope('batch/'):
@@ -354,164 +352,34 @@ for partition in range(0,args['common'].partitions+1):
             optimizer = tf.train.RMSPropOptimizer(learning_rate)
 
         # set robust modifier
-        with tf.name_scope('robust'):
-            grads_and_vars=optimizer.compute_gradients(loss)
-            gradients, variables = zip(*grads_and_vars)
-            global_norm = tf.global_norm(gradients)
+        print('  robustifying optimizer')
 
-            total_parameters=0
-            for _,var in grads_and_vars:
-                variable_parameters = 1
-                for dim in var.get_shape():
-                    variable_parameters *= dim.value
-                total_parameters += variable_parameters
-            print('    total_parameters=',total_parameters)
-            stddev_modifier=math.sqrt(2.0*math.log(float(total_parameters)))
-            print('    stddev_modifier=',stddev_modifier)
-            opts['num_stddevs']*=stddev_modifier
-            print('    opts[num_stddevs]=',opts['num_stddevs'])
+        if opts['disable_robust']:
+            train_op=optimizer.minimize(loss)
+            global_norm=0
+            clip=0
+            m_unbiased=0
 
-            if opts['no_median']:
-                m_alpha = 0.999 # opts['m_alpha']
-                v_alpha = 0.999 # opts['v_alpha']
-                m_init=0.0
-                v_init=0.0
-                epsilon=1e-9
-                burn_in=10
+        else:
+            if not opts['burn_in']:
+                opts['burn_in']=0
+            if not opts['window_size']:
+                opts['window_size']=1000
 
-                m = tf.Variable(m_init,trainable=False)
-                v = tf.Variable(v_init,trainable=False)
-                m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
-                v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
-
-                clip = tf.cond(global_step<burn_in,
-                        lambda: global_norm,
-                        lambda: m_unbiased+epsilon+(tf.sqrt(v_unbiased))*opts['num_stddevs']/math.sqrt(opts['batch_size'])/2
-                        )
-
-                #m2 = m_alpha*m + (1-m_alpha)*global_norm
-                #v2 = v_alpha*v + (1-v_alpha)*global_norm**2
-                m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
-                v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(global_norm,clip)**2
-                m_update = tf.assign(m,m2)
-                v_update = tf.assign(v,v2)
-                update_clipper = tf.group(m_update,v_update)
-
-                if opts['tensorboard']:
-                    tf.summary.scalar('m',m)
-                    tf.summary.scalar('v',v)
-                    tf.summary.scalar('m_unbiased',m_unbiased)
-                    tf.summary.scalar('v_unbiased',v_unbiased)
-
-            else:
-                try:
-                    default_size=data.train_numdp
-                except:
-                    default_size=10000
-                burn_in = opts['burn_in']
-                if not burn_in:
-                    burn_in=default_size
-                window_size = opts['window_size']
-                if not window_size:
-                    window_size=default_size
-
-                percentile=opts['clip_percentile']
-                epsilon = 1e-9
-                def get_median(v):
-                    v = tf.reshape(v, [-1])
-                    m = v.get_shape()[0]//2
-                    return tf.nn.top_k(v, m).loss_values[m-1]
-                print('global_norm=',tf.reshape(global_norm,[1]).get_shape())
-                ms = tf.Variable(tf.zeros([window_size]),trainable=False)
-                ms_update = tf.assign(ms[tf.mod(global_step,window_size)],global_norm)
-                vs = ms*ms
-                print('ms=',ms.get_shape())
-                ms_trimmed = ms[0:tf.minimum(window_size,global_step+1)]
-
-                m=tf.contrib.distributions.percentile(ms_trimmed,50)
-                m_unbiased=m
-                clip=tf.contrib.distributions.percentile(ms_trimmed,percentile)
-                #clip = tf.cond(global_step<burn_in,
-                        #lambda: tf.maximum(global_norm,clip_raw),
-                        #lambda: clip_raw
-                        #)
-                update_clipper = tf.group(ms_update)
-
-            if opts['tensorboard']:
-                tf.summary.scalar('global_norm',global_norm)
-                tf.summary.scalar('clip',clip)
-
-            if opts['robust']=='none':
-                gradients2=gradients
-
-            elif opts['robust']=='global':
-                #if opts['verbose']:
-                    #clip = tf.cond(
-                            #clip>=global_norm,
-                            #lambda:clip,
-                            #lambda:tf.Print(clip,[global_norm,clip],'clipped'),
-                            #)
-                if opts['clip_method']=='soft':
-                    gradients2, _ = tf.clip_by_global_norm(gradients, clip, use_norm=global_norm)
-                elif opts['clip_method']=='hard':
-                    gradients2=[]
-                    for grad in gradients:
-                        print('grad=',type(grad))
-                        if grad==None:
-                            grad2=None
-                        else:
-                            grad2=tf.cond(
-                                    global_norm>clip,
-                                    lambda:tf.zeros(grad.get_shape()),
-                                    lambda:grad
-                                    )
-                        gradients2.append(grad2)
-
-            elif opts['robust']=='local':
-                gradients2=[]
-                update_clipper=tf.group()
-
-                for grad,var in grads_and_vars:
-                    rawname=var.name.split(':')[0]
-                    ones = np.ones(var.get_shape())
-                    m = tf.Variable(m_init*ones,name=rawname,trainable=False,dtype=tf.float32)
-                    v = tf.Variable(v_init*ones,name=rawname,trainable=False,dtype=tf.float32)
-                    #m_unbiased = m/(1.0-m_alpha)
-                    #v_unbiased = v/(1.0-v_alpha)
-                    m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
-                    v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
-                    #v_unbiased = (v-(1.0-v_alpha)*v_init)/(1.0-v_alpha**(1+global_step_float))
-                    clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
-                    grad2_abs = tf.minimum(tf.abs(grad),clip)
-                    m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(grad2_abs,clip)
-                    v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(grad2_abs,clip)**2
-                    grad2=tf.sign(grad)*grad2_abs
-                    gradients2.append(grad2)
-                    m_update=tf.assign(m,m2)
-                    v_update=tf.assign(v,v2)
-                    update_clipper=tf.group(update_clipper,m_update,v_update)
-
-        # apply gradients
-
-        grads_and_vars2=zip(gradients2,variables)
-        grad_updates=optimizer.apply_gradients(
-                grads_and_vars2,
-                global_step=global_step)
-        train_op = tf.group(grad_updates,update_clipper)
-
-        #train_op = tf.cond(
-                #global_step<burn_in,
-                #lambda:tf.group(
-                    #update_clipper,
-                    #tf.assign(global_step,global_step+1)
-                    #),
-                #lambda:tf.group(
-                    #update_clipper,
-                    #optimizer.apply_gradients(
-                        #grads_and_vars2,
-                        #global_step=global_step)
-                    #)
-                #)
+            import robust
+            train_op,global_norm,clip,m_unbiased=robust.robust_minimize(
+                    optimizer,
+                    loss,
+                    loss_per_dp,
+                    global_step,
+                    opts['batch_size'],
+                    clip_method=opts['clip_method'],
+                    clip_type=opts['clip_type'],
+                    clip_activation=opts['clip_activation'],
+                    clip_percentile=opts['clip_percentile'],
+                    burn_in=opts['burn_in'],
+                    window_size=opts['window_size']
+                    )
 
         if opts['tensorboard']:
             with tf.name_scope('batch/'):
