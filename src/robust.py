@@ -69,42 +69,42 @@ def robust_minimize(
         # calculate gradients
         
         if clip_method=='dp':
-            from tensorflow.python.framework import ops 
-            from tensorflow.python.ops import gradients
-            from tensorflow.python.ops import variables
-            #losses=tf.split(loss_per_dp,1)
-            var_list = (
-                  variables.trainable_variables() +
-                  ops.get_collection(ops.GraphKeys.TRAINABLE_RESOURCE_VARIABLES))
-            var_list += ops.get_collection(ops.GraphKeys._STREAMING_MODEL_PORTS)
-            ##processors = [_get_processor(v) for v in var_list]
-            ##var_refs = [p.target() for p in processors]
-            #grads=gradients.gradients(losses,var_list)
-            #grads_and_vars = list(zip(grads, var_list))
-#
-            #print('grads=',grads)
-#
-            #grads_and_vars=optimizer.compute_gradients(loss)
-            #gradients, variables = zip(*grads_and_vars)
-            #print('gradients=',gradients)
+            # FIXME: this method makes no effort to place the variables on appropriate devices
+            # when multiple devices are available
+            variables = (
+                    tf.trainable_variables() +
+                    tf.get_collection(tf.GraphKeys.TRAINABLE_RESOURCE_VARIABLES) +
+                    tf.get_collection(tf.GraphKeys._STREAMING_MODEL_PORTS)
+                    )
+        
+            loop_vars = [
+                    tf.constant(0,tf.int32),
+                    tf.TensorArray(tf.float32,size=batch_size,clear_after_read=False),
+                    map(lambda _: tf.TensorArray(tf.float32,size=batch_size,clear_after_read=False),variables)
+                    ]
 
-            def jacobian(y_flat, x):
-                n = y_flat.shape[0]
+            def go(i,arr_norm,arr_vars):
+                grad=tf.gradients(loss_per_dp[i],variables)
+                norm=tf.global_norm(grad)
+                clip=clip_gradients(grad,norm)
+                return [
+                        i+1,
+                        arr_norm.write(i,norm),
+                        map(lambda (arr,g): arr.write(i,g),zip(arr_vars,clip))
+                        ]
 
-                loop_vars = [
-                    tf.constant(0, tf.int32),
-                    tf.TensorArray(tf.float32, size=n),
-                ]
+            _,norms,clips=tf.while_loop(
+                    lambda i,arr_norm,arr_vars: i<batch_size,
+                    go,
+                    loop_vars
+                    )
 
-                _, jacobian = tf.while_loop(
-                    lambda j, _: j < n,
-                    lambda j, result: (j+1, result.write(j, tf.gradients(y_flat[j], x))),
-                    loop_vars)
+            gradients2 = [ tf.reduce_mean(g.stack(),axis=0) for g in clips ]
+            global_norm= tf.reduce_mean(norms.stack())
 
-                return jacobian.stack()
-
-            j=jacobian(loss_per_dp,var_list)
-            print('j=',j.get_shape())
+            index_start=tf.mod( global_step   *batch_size,window_size)
+            index_stop =tf.mod((global_step+1)*batch_size,window_size)
+            ms_update = tf.assign(ms[index_start:index_stop],norms.stack())
 
         elif clip_method=='dp_naive':
             all_gradients = []
@@ -143,7 +143,22 @@ def robust_minimize(
 
     # apply gradients
 
+#grads_and_vars2= [
+        #(<tf.Tensor 'robust_minimize/Mean:0' shape=() dtype=float32>, 
+         #<tf.Variable 'model/w:0' shape=(28, 28, 1, 10) dtype=float32_ref>), 
+        #(<tf.Tensor 'robust_minimize/Mean_1:0' shape=() dtype=float32>, 
+         #<tf.Variable 'model/b:0' shape=() dtype=float32_ref>)
+        #]
+#
+#grads_and_vars2= [
+        #(<tf.Tensor 'robust_minimize/div:0' shape=(28, 28, 1, 10) dtype=float32>, 
+         #<tf.Variable 'model/w:0' shape=(28, 28, 1, 10) dtype=float32_ref>), 
+        #(<tf.Tensor 'robust_minimize/div_1:0' shape=() dtype=float32>, 
+         #<tf.Variable 'model/b:0' shape=() dtype=float32_ref>)
+        #]
+
     grads_and_vars2=zip(gradients2,variables)
+    print('grads_and_vars2=',grads_and_vars2)
     grad_updates=optimizer.apply_gradients(
             grads_and_vars2,
             global_step=global_step)
