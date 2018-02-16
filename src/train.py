@@ -44,8 +44,9 @@ import model
 subparser_model = subparsers.add_parser('model')
 subparsers_model = subparser_model.add_subparsers(dest='subcommand')
 for loader, name, is_pkg in pkgutil.walk_packages(model.__path__):
-    modules['model'][name]=loader.find_module(name).load_module(name)
-    modules['model'][name].modify_parser(subparsers_model)
+    if not name[0] == '_':
+        modules['model'][name]=loader.find_module(name).load_module(name)
+        modules['model'][name].modify_parser(subparsers_model)
 
 subparser_common = subparsers.add_parser('common')
 subparser_common.add_argument('--partitions',type=int,default=0)

@@ -20,9 +20,6 @@ def robust_minimize(
 
     window_size=int(batch_size*math.ceil(window_size/batch_size))
 
-    print('loss=',loss.get_shape())
-    print('loss_per_dp=',loss_per_dp.get_shape())
-
     with tf.name_scope('robust_minimize'):
 
         # setup clipping
@@ -53,7 +50,6 @@ def robust_minimize(
                 elif clip_activation=='hard':
                     gradients2=[]
                     for grad in gradients:
-                        print('grad=',type(grad))
                         if grad==None:
                             grad2=None
                         else:
@@ -143,22 +139,7 @@ def robust_minimize(
 
     # apply gradients
 
-#grads_and_vars2= [
-        #(<tf.Tensor 'robust_minimize/Mean:0' shape=() dtype=float32>, 
-         #<tf.Variable 'model/w:0' shape=(28, 28, 1, 10) dtype=float32_ref>), 
-        #(<tf.Tensor 'robust_minimize/Mean_1:0' shape=() dtype=float32>, 
-         #<tf.Variable 'model/b:0' shape=() dtype=float32_ref>)
-        #]
-#
-#grads_and_vars2= [
-        #(<tf.Tensor 'robust_minimize/div:0' shape=(28, 28, 1, 10) dtype=float32>, 
-         #<tf.Variable 'model/w:0' shape=(28, 28, 1, 10) dtype=float32_ref>), 
-        #(<tf.Tensor 'robust_minimize/div_1:0' shape=() dtype=float32>, 
-         #<tf.Variable 'model/b:0' shape=() dtype=float32_ref>)
-        #]
-
     grads_and_vars2=zip(gradients2,variables)
-    print('grads_and_vars2=',grads_and_vars2)
     grad_updates=optimizer.apply_gradients(
             grads_and_vars2,
             global_step=global_step)
@@ -177,6 +158,7 @@ def robust_minimize(
                     #global_step=global_step)
                 #)
             #)
+
     return [train_op,global_norm,clip,m]
 
 ################################################################################
