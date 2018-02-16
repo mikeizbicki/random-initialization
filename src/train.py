@@ -8,10 +8,11 @@ import itertools
 import math
 import os
 import pkgutil
+import sys
 import sklearn
 import tflearn
-import sys
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+import time
+sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 
 ########################################
 print('processing cmdline args')
@@ -267,7 +268,7 @@ for partition in range(0,args['common'].partitions+1):
             #data.train = data.train.map(pad_dim)
             #data.train = data.train.map(triangle)
             data.train = data.train.shuffle(
-                    data.train_numdp,
+                    1000, #data.train_numdp,
                     seed=0
                     )
             data.train = data.train.batch(opts['batch_size'])
@@ -497,16 +498,20 @@ for partition in range(0,args['common'].partitions+1):
 
             for epoch in range(0,opts['epochs']+1):
 
+                epoch_start=time.clock()
+
                 # train one epoch on training set
                 if epoch>0:
                     sess.run(iterator.make_initializer(data.train),feed_dict={is_training:True})
                     try:
                         reset_summary()
+                        #print('    init time=%g'%(time.clock()-epoch_start))
                         while True:
                             tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
+                            batch_start=time.clock()
                             loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op],feed_dict={is_training:True})
                             if opts['verbose']:
-                                print('    step=%d, loss=%g              '%(global_step.eval(),loss_res))
+                                print('    step=%d, loss=%g, sec=%g           '%(global_step.eval(),loss_res,time.clock()-batch_start))
                                 print('\033[F',end='')
                             nextline=' '.join(map(str,tracker_res))
                             nextline=filter(lambda x: x not in '[],', nextline)
