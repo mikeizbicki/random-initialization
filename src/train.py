@@ -87,8 +87,7 @@ subparser_robust.add_argument('--disable_robust',action='store_true')
 subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='batch')
 subparser_robust.add_argument('--clip_type',choices=['none','global','local'],default='none')
 subparser_robust.add_argument('--clip_activation',choices=['soft','hard'],default='soft')
-subparser_robust.add_argument('--clip_percentile',type=interval(float),default=80)
-subparser_robust.add_argument('--burn_in',type=interval(int),default=None)
+subparser_robust.add_argument('--clip_percentile',type=interval(float),default=99)
 subparser_robust.add_argument('--window_size',type=interval(int),default=None)
 
 ####################
@@ -268,10 +267,7 @@ for partition in range(0,args['common'].partitions+1):
             data.train = data.train.map(max_Y)
             #data.train = data.train.map(pad_dim)
             #data.train = data.train.map(triangle)
-            data.train = data.train.shuffle(
-                    1000, #data.train_numdp,
-                    seed=0
-                    )
+            data.train = data.train.shuffle(opts['batch_size']*20,seed=0)
             data.train = data.train.batch(opts['batch_size'])
 
             #data.test = data.test.map(unit_norm)
@@ -363,10 +359,11 @@ for partition in range(0,args['common'].partitions+1):
             m_unbiased=0
 
         else:
-            if not opts['burn_in']:
-                opts['burn_in']=0
             if not opts['window_size']:
-                opts['window_size']=1000
+                try:
+                    opts['window_size']=data.train_numdp
+                except:
+                    opts['window_size']=10000
 
             import robust
             train_op,global_norm,clip,m_unbiased=robust.robust_minimize(
@@ -379,7 +376,6 @@ for partition in range(0,args['common'].partitions+1):
                     clip_type=opts['clip_type'],
                     clip_activation=opts['clip_activation'],
                     clip_percentile=opts['clip_percentile'],
-                    burn_in=opts['burn_in'],
                     window_size=opts['window_size']
                     )
 

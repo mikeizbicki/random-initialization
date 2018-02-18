@@ -6,11 +6,10 @@ def robust_minimize(
         loss_per_dp,
         global_step,
         batch_size,
-        clip_method='dp_naive', #dp_naive,batch
+        clip_method='dp_naive', #dp,batch,batch_naive
         clip_type='global',
         clip_activation='soft',
         clip_percentile=99,
-        burn_in=0,
         window_size=1000
         ):
 
@@ -31,7 +30,9 @@ def robust_minimize(
         ms = tf.Variable(tf.zeros([window_size]),trainable=False)
         ms_trimmed = ms[0:tf.minimum(window_size,trim_size+1)]
         m=tf.contrib.distributions.percentile(ms_trimmed,50)
-        clip=tf.contrib.distributions.percentile(ms_trimmed,clip_percentile)
+
+        clip=tf.contrib.distributions.percentile(ms,clip_percentile)
+        #clip=tf.contrib.distributions.percentile(ms_trimmed,clip_percentile_modified)
 
         def clip_gradients(gradients,norm):
 
@@ -144,20 +145,6 @@ def robust_minimize(
             grads_and_vars2,
             global_step=global_step)
     train_op = tf.group(grad_updates,ms_update)
-
-    #train_op = tf.cond(
-            #global_step<burn_in,
-            #lambda:tf.group(
-                #update_clipper,
-                #tf.assign(global_step,global_step+1)
-                #),
-            #lambda:tf.group(
-                #update_clipper,
-                #optimizer.apply_gradients(
-                    #grads_and_vars2,
-                    #global_step=global_step)
-                #)
-            #)
 
     return [train_op,global_norm,clip,m]
 
