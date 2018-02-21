@@ -58,5 +58,7 @@ def loss(args,y_,y):
         tf.add_to_collection(tf.GraphKeys.LOSSES,loss)
         tf.add_to_collection(tf.GraphKeys.LOSSES,mse_mu)
 
-    return loss
+    loss_per_dp=loss #FIXME: this won't work for batch sizes larger than 1
+
+    return loss,loss_per_dp
 

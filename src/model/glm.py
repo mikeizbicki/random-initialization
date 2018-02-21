@@ -39,6 +39,9 @@ def inference(x_,data,opts,is_training):
         w = tf.Variable(w0,name='w')
         b = tf.Variable(1.0,name='b')
         waxes=range(0,len(data.dimX))
+        print('x_=',x_)
+        print('w=',w)
+        print('b=',b)
         y = tf.tensordot(x_,w,axes=(map(lambda x: x+1,waxes),waxes))+b
 
     return y

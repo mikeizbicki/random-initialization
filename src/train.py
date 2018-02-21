@@ -65,6 +65,7 @@ subparser_log.add_argument('--dirname_opts',type=str,default=[],nargs='*')
 subparser_log.add_argument('--dump_data',action='store_true')
 
 subparser_preprocess = subparser_common.add_argument_group('data preprocessing options')
+subparser_preprocess.add_argument('--unit_norm',action='store_true')
 subparser_preprocess.add_argument('--triangle',type=interval(int),default=0)
 subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
 subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
@@ -74,13 +75,15 @@ subparser_preprocess.add_argument('--pad_dim',type=interval(int),default=0)
 subparser_preprocess.add_argument('--pad_dim_numbad',type=interval(int),default=0)
 
 subparser_optimizer = subparser_common.add_argument_group('optimizer options')
-subparser_optimizer.add_argument('--epochs',type=int,default=100)
 subparser_optimizer.add_argument('--batch_size',type=interval(int),default=1)
 subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
 subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
 subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='sqrt')
 subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
 subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
+
+subparser_optimizer.add_argument('--early_stop_check',type=int,default=3)
+subparser_optimizer.add_argument('--epochs',type=int,default=100)
 
 subparser_robust = subparser_common.add_argument_group('robustness options')
 subparser_robust.add_argument('--disable_robust',action='store_true')
@@ -95,7 +98,7 @@ subparser_robust.add_argument('--window_size',type=interval(int),default=None)
 argvv = [list(group) for is_key, group in itertools.groupby(sys.argv[1:], lambda x: x=='--') if not is_key]
 
 args={}
-args['data'] = parser.parse_args(['data','regression'])
+args['data'] = parser.parse_args(['data','synthetic'])
 args['model'] = parser.parse_args(['model','glm'])
 args['common'] = parser.parse_args(['common'])
 args['graph'] = []
@@ -104,6 +107,7 @@ for argv in argvv:
     if argv[0]=='graph':
         args['graph'].append(parser.parse_args(argv))
     else:
+        print('argv[0]=',argv[0])
         args[argv[0]]=parser.parse_args(argv)
 
 data = modules['data'][args['data'].subcommand]
@@ -200,7 +204,10 @@ for partition in range(0,args['common'].partitions+1):
             data.init(partitionargs['data'])
 
             def unit_norm(x,y,id):
-                return (x/tf.norm(x),y,id)
+                if opts['unit_norm']:
+                    return (x/tf.norm(x),y,id)
+                else:
+                    return (x,y,id)
 
             gaussian_X_norms=tf.random_normal([opts['gaussian_X']]+data.dimX)
             def gaussian_X(x,y,id):
@@ -242,36 +249,46 @@ for partition in range(0,args['common'].partitions+1):
                 return (x,y2,id)
 
             def pad_dim(x,y,id):
-                x2=tf.pad(
-                        x,
-                        [[0,opts['pad_dim']],[0,opts['pad_dim']],[0,0]],
-                        constant_values=0.5
-                        )
-                return (x2,y,id)
+                if opts['pad_dim']>0:
+                    x2=tf.pad(
+                            x,
+                            [[0,opts['pad_dim']],[0,opts['pad_dim']],[0,0]],
+                            constant_values=0.5,
+                            )
+                    return (x2,y,id)
+                else:
+                    return (x,y,id)
 
             def triangle(x,y,id):
-                dimXnew=[28+opts['pad_dim'],28+opts['pad_dim']]
-                triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
-                triangle=triangle.reshape(dimXnew+[1])
-                x2=tf.cond(
-                        id<opts['triangle'],
-                        lambda:triangle,
-                        lambda:x
-                        )
-                return (x2,y,id)
+                if opts['triangle']>0:
+                    dimXnew=[data.dimX[0]+opts['pad_dim'],data.dimX[1]+opts['pad_dim']]
+                    triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
+                    triangle=triangle.reshape(dimXnew+[data.dimX[2]])
+                    x2=tf.cond(
+                            id<opts['triangle'],
+                            lambda:triangle,
+                            lambda:x
+                            )
+                    return (x2,y,id)
+                else:
+                    return (x,y,id)
 
-            #data.train = data.train.map(unit_norm)
+            data.train = data.train.map(unit_norm)
             data.train = data.train.map(label_corruption)
             data.train = data.train.map(gaussian_X)
             data.train = data.train.map(zero_Y)
             data.train = data.train.map(max_Y)
-            #data.train = data.train.map(pad_dim)
-            #data.train = data.train.map(triangle)
+            data.train = data.train.map(pad_dim)
+            data.train = data.train.map(triangle)
             data.train = data.train.shuffle(opts['batch_size']*20,seed=0)
             data.train = data.train.batch(opts['batch_size'])
 
-            #data.test = data.test.map(unit_norm)
-            #data.test = data.test.map(pad_dim)
+            data.valid = data.valid.map(unit_norm)
+            data.valid = data.valid.map(pad_dim)
+            data.valid = data.valid.batch(opts['batch_size_test'])
+
+            data.test = data.test.map(unit_norm)
+            data.test = data.test.map(pad_dim)
             data.test = data.test.batch(opts['batch_size_test'])
 
             iterator = tf.data.Iterator.from_structure(
@@ -281,12 +298,13 @@ for partition in range(0,args['common'].partitions+1):
             x_,y_,z_ = iterator.get_next()
             y_argmax_=tf.argmax(y_,axis=1)
 
-            #data.dimX=[
-                    #data.dimX[0]+opts['pad_dim'],
-                    #data.dimX[1]+opts['pad_dim'],
-                    #data.dimX[2]
-                    #]
-            print('x_=',x_.get_shape())
+            if opts['pad_dim']>0:
+                data.dimX=[
+                        data.dimX[0]+opts['pad_dim'],
+                        data.dimX[1]+opts['pad_dim'],
+                        data.dimX[2]
+                        ]
+            print('    padded dimX=',x_.get_shape())
 
         y = module_model.inference(x_,data,opts,is_training)
         y_argmax = tf.argmax(y)
@@ -481,17 +499,20 @@ for partition in range(0,args['common'].partitions+1):
 
                 logreg = linear_model.LogisticRegression(C=1/opts['l2'])
                 logreg.fit(train_X,train_Y)
-                print('logreg score=',logreg.score(data.test_X,np.argmax(data.test_Y,axis=1)))
+                print('logreg score=',logreg.score(data.valid_X,np.argmax(data.valid_Y,axis=1)))
 
                 ransac = linear_model.LogisticRegression(C=1/opts['l2'])
                 ransac.fit(train_X,train_Y)
-                print('ransac score=',ransac.score(data.test_X,np.argmax(data.test_Y,axis=1)))
+                print('ransac score=',ransac.score(data.valid_X,np.argmax(data.valid_Y,axis=1)))
 
             if opts['naive_mean']:
                 file_results.write(' '.join(map(str,data.naive_accuracies))+' ')
 
             ########################################
-            print('  training')
+            print('training')
+
+            validation_scores=[]
+            validation_scores_diff=float('inf')
 
             for epoch in range(0,opts['epochs']+1):
 
@@ -502,7 +523,6 @@ for partition in range(0,args['common'].partitions+1):
                     sess.run(iterator.make_initializer(data.train),feed_dict={is_training:True})
                     try:
                         reset_summary()
-                        #print('    init time=%g'%(time.clock()-epoch_start))
                         while True:
                             tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
                             batch_start=time.clock()
@@ -519,8 +539,8 @@ for partition in range(0,args['common'].partitions+1):
                         summary=sess.run(summary_epoch)
                         writer_train.add_summary(summary,global_step.eval())
 
-                # evaluate on test set
-                sess.run(iterator.make_initializer(data.test),feed_dict={is_training:False})
+                # evaluate on validation set
+                sess.run(iterator.make_initializer(data.valid),feed_dict={is_training:False})
                 try:
                     reset_summary()
                     while True:
@@ -534,13 +554,27 @@ for partition in range(0,args['common'].partitions+1):
                     nextline=filter(lambda x: x not in '[],', nextline)
                     file_epoch.write(nextline+'\n')
 
-                    #if not opts['verbose'] and epoch!=0:
-                        #print('\033[F',end='')
-                    print('  epoch: %d    '%epoch,res,'         ')
+                    validation_scores.append(res[0])
+                    if len(validation_scores)>=opts['early_stop_check']:
+                        n=len(validation_scores)-1
+                        validation_scores_diff=validation_scores[n-opts['early_stop_check']]-validation_scores[n]
+                    print('  epoch: %d    '%epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
 
+                    if validation_scores_diff<0:
+                        break
 
-                #vars=locals().copy()
-                #vars.update(globals())
-                #import code; code.interact(local=vars)
 
             file_results.write(' '.join(map(str,res))+'\n')
+
+            # evaluate on test set
+            print('evaluating on test set')
+            sess.run(iterator.make_initializer(data.test),feed_dict={is_training:False})
+            try:
+                reset_summary()
+                while True:
+                    sess.run(loss_updates,feed_dict={is_training:False})
+            except tf.errors.OutOfRangeError:
+                res=sess.run(loss_values,feed_dict={is_training:False})
+                print('  res=',res)
+            with open(log_dir+'/eval.txt','w',1) as f:
+                f.write(str(res)+'\n')

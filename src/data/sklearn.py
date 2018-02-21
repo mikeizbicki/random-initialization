@@ -20,6 +20,10 @@ def init(args):
     global train_numdp
     global train_X
     global train_Y
+    global valid
+    global valid_numdp
+    global valid_X
+    global valid_Y
     global test
     global test_numdp
     global test_X
@@ -68,6 +72,12 @@ def init(args):
     test_Y=Yall[train_numdp:,...]
     test_Id = np.array(range(0,test_numdp))
     test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),test_Id))
+
+    valid_numdp=test_numdp
+    valid_X=test_X
+    valid_Y=test_Y
+    valid_Id=test_Id
+    valid=test
 
     global train_Y_max
     train_Y_max = np.float32(np.amax(train_Y,axis=0))

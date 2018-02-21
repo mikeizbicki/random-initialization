@@ -15,10 +15,6 @@ def classification(args,y_,y):
         xentropy_robust = tf.reduce_mean(xentropy_robust_per_dp,name='xentropy_robust')
         tf.add_to_collection(tf.GraphKeys.LOSSES,xentropy_robust)
 
-        mse = tf.losses.mean_squared_error(y_,y)
-        huber = tf.losses.huber_loss(y_,y)
-        absdiff = tf.losses.absolute_difference(y_,y)
-
         argmax_y =tf.argmax(y ,axis=1)
         argmax_y_=tf.argmax(y_,axis=1)
         results = tf.cast(tf.equal(argmax_y,argmax_y_),tf.float32)

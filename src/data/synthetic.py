@@ -7,6 +7,7 @@ def modify_parser(subparsers):
     parser.add_argument('--variance',type=interval(float),default=1)
     parser.add_argument('--numdp',type=interval(int),default=100)
     parser.add_argument('--numdp_test',type=interval(int),default=100)
+    parser.add_argument('--numdp_valid',type=interval(int),default=100)
     parser.add_argument('--dimX',type=interval(int),default=[100],nargs='*')
     parser.add_argument('--dimX_nuisance',type=interval(int),nargs='+',default=[0])
     parser.add_argument('--dimY',type=interval(int),default=2)
@@ -22,6 +23,10 @@ def init(args):
     global train_numdp
     global train_X
     global train_Y
+    global valid
+    global valid_numdp
+    global valid_X
+    global valid_Y
     global test
     global test_numdp
     global test_X
@@ -70,6 +75,10 @@ def init(args):
     train_numdp=args['numdp']
     train_X,train_Y,Id=make_data(args['numdp'],args['seed'])
     train=tf.data.Dataset.from_tensor_slices((train_X,train_Y,Id))
+
+    valid_numdp=args['numdp_valid']
+    valid_X,valid_Y,Id=make_data(args['numdp_valid'],args['seed']+1)
+    valid=tf.data.Dataset.from_tensor_slices((valid_X,valid_Y,Id))
 
     test_numdp=args['numdp_test']
     test_X,test_Y,Id=make_data(args['numdp_test'],args['seed']+1)

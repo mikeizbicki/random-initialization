@@ -12,6 +12,7 @@ def modify_parser(subparsers):
 def init(args):
 
     global train
+    global valid 
     global test
     global dimX
     global dimY
@@ -49,3 +50,4 @@ def init(args):
 
     train=tf.data.Dataset.from_tensor_slices((X[:args['numdp'],:],Y[:args['numdp'],:]))
     test=tf.data.Dataset.from_tensor_slices((X[args['numdp']:,:],Y[args['numdp']:,:]))
+    valid=test #FIXME

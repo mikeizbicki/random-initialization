@@ -12,7 +12,8 @@ def modify_parser(subparsers):
     parser.add_argument('--data_dir',type=str,default='data/tflearn')
     parser.add_argument('--numdp',type=interval(int),default=1e10)
     parser.add_argument('--numdp_balanced',action='store_true')
-    parser.add_argument('--numdp_test',type=interval(int),default=1e10)
+    parser.add_argument('--numdp_test',type=interval(int),default=1e20)
+    parser.add_argument('--numdp_valid',type=interval(int),default=1e20)
     parser.add_argument('--seed',type=interval(int),default=0)
 
     parser.add_argument('--test_on_train',action='store_true')
@@ -23,6 +24,10 @@ def init(args):
     global train_numdp
     global train_X
     global train_Y
+    global valid
+    global valid_numdp
+    global valid_X
+    global valid_Y
     global test
     global test_numdp
     global test_X
@@ -41,37 +46,57 @@ def init(args):
     
     if args['name']=='cifar10':
         (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
+        num_valid=5000
+        valid_X=train_X[50000-num_valid:,...]
+        valid_Y=train_Y[50000-num_valid:,...]
+        train_X=train_X[:50000-num_valid,...]
+        train_Y=train_Y[:50000-num_valid,...]
         dimX=[32,32,3]
         dimY=10
     elif args['name']=='mnist':
-        train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+        #train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
+        #train_X=train_X.reshape([55000,28,28,1])
+        #test_X=test_X.reshape([10000,28,28,1])
+        mnist=tflearn.datasets.mnist.read_data_sets(args['data_dir'])
+        train_X=mnist.train.images
+        train_Y=mnist.train.labels
         train_X=train_X.reshape([55000,28,28,1])
+        valid_X=mnist.validation.images
+        valid_Y=mnist.validation.labels
+        valid_X=valid_X.reshape([5000,28,28,1])
+        test_X=mnist.test.images
+        test_Y=mnist.test.labels
         test_X=test_X.reshape([10000,28,28,1])
         dimX=[28,28,1]
         dimY=10
     elif args['name']=='imdb':
-        (train_X, train_Y), _, (test_X, test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl',n_words=10000)
+        (train_X,train_Y), (valid_X,valid_Y), (test_X,test_Y) = tflearn.datasets.imdb.load_data(args['data_dir']+'/imdb.pkl',n_words=10000)
         train_X = tflearn.data_utils.pad_sequences(train_X, maxlen=100, value=0.)
         train_Y = tflearn.data_utils.to_categorical(train_Y,nb_classes=2)
-        test_Y = tflearn.data_utils.to_categorical(test_Y,nb_classes=2)
-        test_X = tflearn.data_utils.pad_sequences(test_X, maxlen=100, value=0.)
         train_Y = np.argmax(train_Y,axis=1)
+        valid_X = tflearn.data_utils.pad_sequences(valid_X, maxlen=100, value=0.)
+        valid_Y = tflearn.data_utils.to_categorical(valid_Y,nb_classes=2)
+        valid_Y = np.argmax(valid_Y,axis=1)
+        test_X = tflearn.data_utils.pad_sequences(test_X, maxlen=100, value=0.)
+        test_Y = tflearn.data_utils.to_categorical(test_Y,nb_classes=2)
         test_Y = np.argmax(test_Y,axis=1)
         dimX=list(train_X.shape)[1:]
         dimY=np.amax(train_Y,axis=0)+1
     else:
         raise ValueError(args['name'] + ' not yet implemented')
 
-    print('train_X=',train_X.shape)
-    print('train_Y=',train_Y.shape)
+    print('    train_X=',train_X.shape)
+    print('    train_Y=',train_Y.shape)
 
     train_Y = np.eye(dimY)[train_Y]
+    valid_Y = np.eye(dimY)[valid_Y]
     test_Y = np.eye(dimY)[test_Y]
     train_numdp = min(args['numdp'],train_X.shape[0])
+    valid_numdp = min(args['numdp_valid'],valid_X.shape[0])
     test_numdp = min(args['numdp_test'],test_X.shape[0])
 
-    print('dimX=',dimX)
-    print('dimY=',dimY)
+    print('    dimX=',dimX)
+    print('    dimY=',dimY)
 
     # training data
 
@@ -111,6 +136,13 @@ def init(args):
 
     Id = np.array(range(0,train_numdp))
     train=tf.data.Dataset.from_tensor_slices((np.float32(train_X),np.float32(train_Y),Id))
+
+    # validation data
+
+    valid_X = valid_X[0:valid_numdp,...]
+    valid_Y = valid_Y[0:valid_numdp]
+    Id = np.array(range(0,valid_numdp))
+    valid=tf.data.Dataset.from_tensor_slices((np.float32(valid_X),np.float32(valid_Y),Id))
 
     # testing data
 
