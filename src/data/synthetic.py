@@ -40,10 +40,6 @@ def init(args):
     dimX=[a+b for (a,b) in zip(dimX_orig,dimX_nuisance)]
     dimY=args['dimY']
 
-    print('dimX_orig=',dimX_orig)
-    print('dimX_nuisance=',dimX_nuisance)
-    print('dimX=',dimX)
-
     random.seed(args['seed'])
     np.random.seed(args['seed'])
     mu = args['variance']*np.random.normal(size=dimX_orig+[dimY])
