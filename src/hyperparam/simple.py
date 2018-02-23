@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 import argparse
-from interval import Interval
+from interval import interval,Interval
 
 def modify_parser(subparsers):
     subparser = subparsers.add_parser('simple')
@@ -14,18 +14,9 @@ def hyper_opt(modules,args):
         for param_name in param_names:
             param=eval('args["'+command+'"].'+param_name)
             if isinstance(param,Interval):
-                res=param.start+(param.stop-param.start)/2
-                partitionargs[command][param_name]=res
-            elif type(param) is list:
-                ress=[]
-                all_trivial=True
-                for p in param:
-                    if isinstance(p,Interval):
-                        res=p.start+(p.stop-p.start)/2
-                        ress.append(res)
-                        if not p.is_trivial:
-                            all_trivial=False
-                partitionargs[command][param_name] = ress
+                if not param.start == param.stop:
+                    raise ValueError('args['+command+'].'+param_name+' cannot be an interval in the simple hyperparam optimizer')
+                partitionargs[command][param_name]=param.start
             else:
                 partitionargs[command][param_name] = eval('args[command].'+param_name)
 

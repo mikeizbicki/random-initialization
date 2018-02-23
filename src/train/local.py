@@ -26,13 +26,14 @@ def modify_parser(subparsers):
 
     subparser_log = subparser.add_argument_group('logging options')
     subparser_log.add_argument('--log_dir',type=str,default='log')
+    subparser_log.add_argument('--delete_log',action='store_true')
     subparser_log.add_argument('--tensorboard',action='store_true')
     subparser_log.add_argument('--dirname_opts',type=str,default=[],nargs='*')
     subparser_log.add_argument('--dump_data',action='store_true')
 
     subparser_optimizer = subparser.add_argument_group('optimizer options')
     subparser_optimizer.add_argument('--batch_size',type=interval(int),default=1)
-    subparser_optimizer.add_argument('--batch_size_test',type=interval(int),default=100)
+    subparser_optimizer.add_argument('--batch_size_valid',type=interval(int),default=100)
     subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
     subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='none')
     subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
@@ -60,14 +61,17 @@ def train_with_hyperparams(model,data,partitionargs):
     random.seed(partitionargs['train']['seed_np'])
     np.random.seed(partitionargs['train']['seed_np'])
 
+    epoch = tf.Variable(0, name='epoch',trainable=False)
+    epoch_update = tf.assign(epoch,epoch+1)
+
     global_step = tf.Variable(0, name='global_step',trainable=False)
     global_step_float=tf.cast(global_step,tf.float32)
     is_training = tf.placeholder(tf.bool)
 
     data.train = data.train.shuffle(partitionargs['train']['batch_size']*20,seed=0)
     data.train = data.train.batch(partitionargs['train']['batch_size'])
-    data.valid = data.valid.batch(partitionargs['train']['batch_size_test'])
-    data.test = data.test.batch(partitionargs['train']['batch_size_test'])
+    data.valid = data.valid.batch(partitionargs['train']['batch_size_valid'])
+    data.test = data.test.batch(partitionargs['train']['batch_size_valid'])
 
     iterator = tf.data.Iterator.from_structure(
             data.train.output_types,
@@ -196,6 +200,7 @@ def train_with_hyperparams(model,data,partitionargs):
         vars=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,scope='epoch/')
         sess.run(tf.variables_initializer(vars))
 
+    saver=tf.train.Saver(max_to_keep=1)
     with tf.Session().as_default() as sess:
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord) #,sess=sess)
@@ -206,7 +211,6 @@ def train_with_hyperparams(model,data,partitionargs):
         # create a log dir
 
         dirname_opts={}
-        #for opt in args['train'].dirname_opts:
         for opt in partitionargs['train']['dirname_opts']:
             dirname_opts[opt]=partitionargs['train'][opt]
         dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
@@ -217,7 +221,18 @@ def train_with_hyperparams(model,data,partitionargs):
         optshash=hashlib.sha224(str(partitionargs['train'])).hexdigest()
         dirname = 'optshash='+optshash+'-'+dirname_opts_str
         log_dir = partitionargs['train']['log_dir']+'/'+dirname
-        shutil.rmtree(log_dir,ignore_errors=True)
+        log_dir_current=log_dir+'/'+'current'
+        log_dir_best=log_dir+'/'+'best'
+
+        if partitionargs['train']['delete_log']:
+            shutil.rmtree(log_dir,ignore_errors=True)
+        else:
+            try:
+                chpt=tf.train.latest_checkpoint(log_dir_current)
+                saver.restore(sess,chpt)
+            except:
+                pass
+
         writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
         writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
         print('    log_dir = '+log_dir)
@@ -289,12 +304,13 @@ def train_with_hyperparams(model,data,partitionargs):
         validation_scores=[]
         validation_scores_diff=float('inf')
 
-        for epoch in range(0,partitionargs['train']['epochs']+1):
+        _epoch = sess.run(epoch)
+        while _epoch <= partitionargs['train']['epochs']:
 
             epoch_start=time.clock()
 
             # train one epoch on training set
-            if epoch>0:
+            if _epoch>0:
                 sess.run(iterator.make_initializer(data.train),feed_dict={is_training:True})
                 try:
                     reset_summary()
@@ -325,7 +341,7 @@ def train_with_hyperparams(model,data,partitionargs):
                 if partitionargs['train']['tensorboard']:
                     writer_test.add_summary(summary,global_step.eval())
 
-                nextline=str(epoch)+' '+' '.join(map(str,res))
+                nextline=str(_epoch)+' '+' '.join(map(str,res))
                 nextline=filter(lambda x: x not in '[],', nextline)
                 file_epoch.write(nextline+'\n')
 
@@ -333,11 +349,36 @@ def train_with_hyperparams(model,data,partitionargs):
                 if len(validation_scores)>=partitionargs['train']['early_stop_check']:
                     n=len(validation_scores)-1
                     validation_scores_diff=validation_scores[n-partitionargs['train']['early_stop_check']]-validation_scores[n]
-                print('  epoch: %d    '%epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
+                print('  epoch: %d    '%_epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
 
-                if validation_scores_diff<0:
-                    break
+            # save current model
+            try:
+                os.stat(log_dir_current)
+            except:
+                os.mkdir(log_dir_current) 
+            saver.save(sess,log_dir_current+'/model.chpt',global_step=global_step)
 
+            # update best model
+            import shutil
+            try:
+                shutil.copytree(log_dir_current, log_dir_best)
+                with open(log_dir_best+'/loss.txt','w') as f:
+                    f.write('%f\n'%res[0])
+            except Exception as e:
+                with open(log_dir_best+'/loss.txt','r') as f:
+                    best_loss=float(f.readline())
+                if res[0]<best_loss:
+                    shutil.rmtree(log_dir_best)
+                    shutil.copytree(log_dir_current, log_dir_best)
+                    with open(log_dir_best+'/loss.txt','w') as f:
+                        f.write('%f\n'%res[0])
+
+            # early stopping
+            if validation_scores_diff<0:
+                break
+
+            sess.run(epoch_update)
+            _epoch=sess.run(epoch)
 
         file_results.write(' '.join(map(str,res))+'\n')
 
