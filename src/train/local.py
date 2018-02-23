@@ -349,7 +349,8 @@ def train_with_hyperparams(model,data,partitionargs):
                 if len(validation_scores)>=partitionargs['train']['early_stop_check']:
                     n=len(validation_scores)-1
                     validation_scores_diff=validation_scores[n-partitionargs['train']['early_stop_check']]-validation_scores[n]
-                print('  epoch: %d    '%_epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
+                print('  '+time.strftime('%Y-%m-%d %H:%M:%S ',time.localtime(time.time()))
+                          +'epoch: %d    '%_epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
 
             # save current model
             try:
