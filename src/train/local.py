@@ -38,6 +38,7 @@ def modify_parser(subparsers):
     subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='none')
     subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
     subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
+    subparser_optimizer.add_argument('--shuffle_all',action='store_true')
 
     subparser_optimizer.add_argument('--early_stop_check',type=int,default=3)
     subparser_optimizer.add_argument('--epochs',type=int,default=100)
@@ -68,7 +69,10 @@ def train_with_hyperparams(model,data,partitionargs):
     global_step_float=tf.cast(global_step,tf.float32)
     is_training = tf.placeholder(tf.bool)
 
-    data.train = data.train.shuffle(partitionargs['train']['batch_size']*20,seed=0)
+    shuffle_size=partitionargs['train']['batch_size']*20
+    if partitionargs['train']['shuffle_all']:
+        shuffle_size=data.train_numdp
+    data.train = data.train.shuffle(shuffle_size,seed=0)
     data.train = data.train.batch(partitionargs['train']['batch_size'])
     data.valid = data.valid.batch(partitionargs['train']['batch_size_valid'])
     data.test = data.test.batch(partitionargs['train']['batch_size_valid'])
