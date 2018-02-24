@@ -230,6 +230,10 @@ def train_with_hyperparams(model,data,partitionargs):
             try:
                 chpt=tf.train.latest_checkpoint(log_dir_current)
                 saver.restore(sess,chpt)
+                with open(log_dir_best+'/loss.txt','r') as f:
+                    best_loss=float(f.readline())
+                with open(log_dir_best+'/epoch.txt','r') as f:
+                    best_epoch=float(f.readline())
             except:
                 pass
 
@@ -366,29 +370,38 @@ def train_with_hyperparams(model,data,partitionargs):
             # update best model
             import shutil
             try:
+                with open(log_dir_best+'/loss.txt','r') as f:
+                    best_loss=float(f.readline())
+                with open(log_dir_best+'/epoch.txt','r') as f:
+                    best_epoch=float(f.readline())
+            except:
+                best_loss=float('inf')
+                best_epoch=0
+
+            if res[0]<best_loss:
+                shutil.rmtree(log_dir_best,ignore_errors=True)
                 shutil.copytree(log_dir_current, log_dir_best)
                 with open(log_dir_best+'/loss.txt','w') as f:
                     f.write('%f\n'%res[0])
-            except Exception as e:
-                with open(log_dir_best+'/loss.txt','r') as f:
-                    best_loss=float(f.readline())
-                if res[0]<best_loss:
-                    shutil.rmtree(log_dir_best)
-                    shutil.copytree(log_dir_current, log_dir_best)
-                    with open(log_dir_best+'/loss.txt','w') as f:
-                        f.write('%f\n'%res[0])
+                with open(log_dir_best+'/epoch.txt','w') as f:
+                    f.write('%d\n'%_epoch)
+                    best_epoch=_epoch
 
             # early stopping
-            if validation_scores_diff<0:
+            if _epoch>=best_epoch+partitionargs['train']['early_stop_check']:
+                print('early stopping')
                 break
 
+            # update epoch counter
             sess.run(epoch_update)
             _epoch=sess.run(epoch)
 
         file_results.write(' '.join(map(str,res))+'\n')
 
         # evaluate on test set
-        print('evaluating on test set')
+        print('evaluating on test set on epoch ',best_epoch)
+        chpt=tf.train.latest_checkpoint(log_dir_best)
+        saver.restore(sess,chpt)
         sess.run(init_test,feed_dict={is_training:False})
         try:
             sess.run(reset_summary_vars)
