@@ -80,6 +80,10 @@ def train_with_hyperparams(model,data,partitionargs):
     x_,y_,z_ = iterator.get_next()
     y_argmax_=tf.argmax(y_,axis=1)
 
+    init_train=iterator.make_initializer(data.train),
+    init_valid=iterator.make_initializer(data.valid),
+    init_test=iterator.make_initializer(data.test),
+
     y = model.inference(x_,data,partitionargs['model'],is_training)
     y_argmax = tf.argmax(y)
     loss,loss_per_dp = model.loss(partitionargs['model'],y_,y)
@@ -196,10 +200,6 @@ def train_with_hyperparams(model,data,partitionargs):
     #summary_batch = tf.summary.merge_all()
     summary_epoch = tf.summary.merge_all(key='epoch')
 
-    def reset_summary():
-        vars=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,scope='epoch/')
-        sess.run(tf.variables_initializer(vars))
-
     saver=tf.train.Saver(max_to_keep=1)
     with tf.Session().as_default() as sess:
         coord = tf.train.Coordinator()
@@ -301,6 +301,10 @@ def train_with_hyperparams(model,data,partitionargs):
         ########################################
         print('training')
 
+        local_vars=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,scope='epoch/')
+        reset_summary_vars=tf.variables_initializer(local_vars)
+        sess.graph.finalize()
+
         validation_scores=[]
         validation_scores_diff=float('inf')
 
@@ -311,9 +315,9 @@ def train_with_hyperparams(model,data,partitionargs):
 
             # train one epoch on training set
             if _epoch>0:
-                sess.run(iterator.make_initializer(data.train),feed_dict={is_training:True})
+                sess.run(init_train,feed_dict={is_training:True})
                 try:
-                    reset_summary()
+                    sess.run(reset_summary_vars)
                     while True:
                         tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
                         batch_start=time.clock()
@@ -331,9 +335,9 @@ def train_with_hyperparams(model,data,partitionargs):
                     writer_train.add_summary(summary,global_step.eval())
 
             # evaluate on validation set
-            sess.run(iterator.make_initializer(data.valid),feed_dict={is_training:False})
+            sess.run(init_valid,feed_dict={is_training:False})
             try:
-                reset_summary()
+                sess.run(reset_summary_vars)
                 while True:
                     sess.run(loss_updates,feed_dict={is_training:False})
             except tf.errors.OutOfRangeError:
@@ -385,9 +389,9 @@ def train_with_hyperparams(model,data,partitionargs):
 
         # evaluate on test set
         print('evaluating on test set')
-        sess.run(iterator.make_initializer(data.test),feed_dict={is_training:False})
+        sess.run(init_test,feed_dict={is_training:False})
         try:
-            reset_summary()
+            sess.run(reset_summary_vars)
             while True:
                 sess.run(loss_updates,feed_dict={is_training:False})
         except tf.errors.OutOfRangeError:
