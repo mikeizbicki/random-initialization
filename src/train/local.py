@@ -218,7 +218,7 @@ def train_with_hyperparams(model,data,partitionargs):
         import hashlib
         import os
         import shutil
-        optshash=hashlib.sha224(str(partitionargs['train'])).hexdigest()
+        optshash=hashlib.sha224(str(partitionargs)).hexdigest()
         dirname = 'optshash='+optshash+'-'+dirname_opts_str
         log_dir = partitionargs['train']['log_dir']+'/'+dirname
         log_dir_current=log_dir+'/'+'current'
