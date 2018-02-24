@@ -309,9 +309,6 @@ def train_with_hyperparams(model,data,partitionargs):
         reset_summary_vars=tf.variables_initializer(local_vars)
         sess.graph.finalize()
 
-        validation_scores=[]
-        validation_scores_diff=float('inf')
-
         _epoch = sess.run(epoch)
         while _epoch <= partitionargs['train']['epochs']:
 
@@ -353,13 +350,6 @@ def train_with_hyperparams(model,data,partitionargs):
                 nextline=filter(lambda x: x not in '[],', nextline)
                 file_epoch.write(nextline+'\n')
 
-                validation_scores.append(res[0])
-                if len(validation_scores)>=partitionargs['train']['early_stop_check']:
-                    n=len(validation_scores)-1
-                    validation_scores_diff=validation_scores[n-partitionargs['train']['early_stop_check']]-validation_scores[n]
-                print('  '+time.strftime('%Y-%m-%d %H:%M:%S ',time.localtime(time.time()))
-                          +'epoch: %d    '%_epoch,'early_stop:',validation_scores_diff,' -- ',res,'         ')
-
             # save current model
             try:
                 os.stat(log_dir_current)
@@ -386,6 +376,15 @@ def train_with_hyperparams(model,data,partitionargs):
                 with open(log_dir_best+'/epoch.txt','w') as f:
                     f.write('%d\n'%_epoch)
                     best_epoch=_epoch
+
+            # print results
+            if best_epoch==_epoch:
+                highlight='*'
+            else:
+                highlight=' '
+            print('  '+time.strftime('%Y-%m-%d %H:%M:%S ',time.localtime(time.time()))
+                      +highlight
+                      +'epoch: %d    '%_epoch,' -- ',res,'         ')
 
             # early stopping
             if _epoch>=best_epoch+partitionargs['train']['early_stop_check']:
