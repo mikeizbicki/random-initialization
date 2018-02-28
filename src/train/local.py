@@ -40,7 +40,7 @@ def modify_parser(subparsers):
     subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
     subparser_optimizer.add_argument('--shuffle_all',action='store_true')
 
-    subparser_optimizer.add_argument('--early_stop_check',type=int,default=3)
+    subparser_optimizer.add_argument('--early_stop_check',type=int,default=10000)
     subparser_optimizer.add_argument('--epochs',type=int,default=100)
 
     subparser_robust = subparser.add_argument_group('robustness options')

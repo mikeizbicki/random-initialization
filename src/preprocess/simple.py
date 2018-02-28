@@ -8,6 +8,7 @@ def modify_parser(subparsers):
     subparser_preprocess.add_argument('--unit_norm',action='store_true')
     subparser_preprocess.add_argument('--triangle',type=interval(int),default=0)
     subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--label_unshifted_percentile',type=interval(float),default=100.0)
     subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
     subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
     subparser_preprocess.add_argument('--max_Y',type=interval(int),default=0)
@@ -66,6 +67,17 @@ def preprocess_data(data,partitionargs):
                 y2=y
             return (x,y2,id)
 
+        def label_unshifted_percentile(x,y,id):
+            if partitionargs['preprocess']['label_unshifted_percentile']<100.0:
+                y2=tf.cond(
+                        id%100<=int(partitionargs['preprocess']['label_unshifted_percentile']),
+                        lambda: y,
+                        lambda: tf.concat([y[1:],y[:1]],axis=0)
+                        )
+            else:
+                y2=y
+            return (x,y2,id)
+
         def pad_dim(x,y,id):
             if partitionargs['preprocess']['pad_dim']>0:
                 x2=tf.pad(
@@ -93,6 +105,7 @@ def preprocess_data(data,partitionargs):
 
         data.train = data.train.map(unit_norm)
         data.train = data.train.map(label_corruption)
+        data.train = data.train.map(label_unshifted_percentile)
         data.train = data.train.map(gaussian_X)
         data.train = data.train.map(zero_Y)
         data.train = data.train.map(max_Y)
