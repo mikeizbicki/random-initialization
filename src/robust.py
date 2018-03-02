@@ -6,11 +6,13 @@ def robust_minimize(
         loss_per_dp,
         global_step,
         batch_size,
-        clip_method='dp_naive', #dp,batch,batch_naive
+        clip_method='dp', #dp,batch,batch_naive
         clip_type='global',
         clip_activation='soft',
         clip_percentile=99,
-        window_size=1000
+        window_size=1000,
+        log_dir=None,
+        marks=[],
         ):
 
     import tensorflow as tf
@@ -97,6 +99,7 @@ def robust_minimize(
                     )
 
             gradients2 = [ tf.reduce_mean(g.stack(),axis=0) for g in clips ]
+            all_norms=norms.stack()
             global_norm= tf.reduce_mean(norms.stack())
 
             index_start=tf.mod( global_step   *batch_size,window_size)
@@ -118,7 +121,8 @@ def robust_minimize(
 
             index_start=tf.mod( global_step   *batch_size,window_size)
             index_stop =tf.mod((global_step+1)*batch_size,window_size)
-            ms_update = tf.assign(ms[index_start:index_stop],tf.stack(all_norms))
+            all_norms=tf.stack(all_norms)
+            ms_update = tf.assign(ms[index_start:index_stop],all_norms)
 
         elif clip_method=='batch_naive':
             all_gradients = []
@@ -130,6 +134,7 @@ def robust_minimize(
             global_norm = tf.global_norm(gradients)
             ms_update = tf.assign(ms[tf.mod(global_step,window_size)],global_norm)
             gradients2 = clip_gradients(gradients,global_norm)
+            all_norms=tf.tile(tf.reshape(global_norm,shape=[1]),[batch_size])
 
         elif clip_method=='batch':
             grads_and_vars=optimizer.compute_gradients(loss)
@@ -137,6 +142,32 @@ def robust_minimize(
             global_norm = tf.global_norm(gradients)
             gradients2 = clip_gradients(gradients,global_norm)
             ms_update = tf.assign(ms[tf.mod(global_step,window_size)],global_norm)
+            all_norms=tf.tile(tf.reshape(global_norm,shape=[1]),[batch_size])
+
+    # setup logging
+
+    if log_dir is not None:
+        log_file=log_dir+'/robust.log'
+        import os
+        print('    robust log file = ',os.path.abspath(log_file))
+        log=open(log_file,'a',1)
+
+        def update_log(global_step,clip,m,norms,*marks):
+            for i in range(0,norms.shape[0]):
+                log.write(str(global_step)+' ')
+                log.write(str(clip)+' ')
+                log.write(str(m)+' ')
+                log.write(str(norms[i])+' ')
+                #log.write(str(id_[i])+' ')
+                for mark in marks:
+                    log.write(str(mark[i])+' ')
+                log.write('\n')
+            return []
+
+        log_update=tf.py_func(update_log,[global_step,clip,m,all_norms]+marks,[])
+
+    else:
+        log_update=tf.group()
 
     # apply gradients
 
@@ -144,74 +175,6 @@ def robust_minimize(
     grad_updates=optimizer.apply_gradients(
             grads_and_vars2,
             global_step=global_step)
-    train_op = tf.group(grad_updates,ms_update)
+    train_op = tf.group(grad_updates,log_update,ms_update)
 
-    return [train_op,global_norm,clip,m]
-
-################################################################################
-
-        #total_parameters=0
-        #for _,var in grads_and_vars:
-            #variable_parameters = 1
-            #for dim in var.get_shape():
-                #variable_parameters *= dim.value
-            #total_parameters += variable_parameters
-        #print('    total_parameters=',total_parameters)
-
-        #if opts['no_median']:
-            #m_alpha = 0.999 # opts['m_alpha']
-            #v_alpha = 0.999 # opts['v_alpha']
-            #m_init=0.0
-            #v_init=0.0
-            #epsilon=1e-9
-            #burn_in=10
-#
-            #m = tf.Variable(m_init,trainable=False)
-            #v = tf.Variable(v_init,trainable=False)
-            #m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
-            #v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
-#
-            #clip = tf.cond(global_step<burn_in,
-                    #lambda: global_norm,
-                    #lambda: m_unbiased+epsilon+(tf.sqrt(v_unbiased))*opts['num_stddevs']/math.sqrt(opts['batch_size'])/2
-                    #)
-#
-            ##m2 = m_alpha*m + (1-m_alpha)*global_norm
-            ##v2 = v_alpha*v + (1-v_alpha)*global_norm**2
-            #m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(global_norm,clip)
-            #v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(global_norm,clip)**2
-            #m_update = tf.assign(m,m2)
-            #v_update = tf.assign(v,v2)
-            #update_clipper = tf.group(m_update,v_update)
-#
-            #if opts['tensorboard']:
-                #tf.summary.scalar('m',m)
-                #tf.summary.scalar('v',v)
-                #tf.summary.scalar('m_unbiased',m_unbiased)
-                #tf.summary.scalar('v_unbiased',v_unbiased)
-#
-        #else:
-        #elif opts['robust']=='local':
-            #gradients2=[]
-            #update_clipper=tf.group()
-#
-            #for grad,var in grads_and_vars:
-                #rawname=var.name.split(':')[0]
-                #ones = np.ones(var.get_shape())
-                #m = tf.Variable(m_init*ones,name=rawname,trainable=False,dtype=tf.float32)
-                #v = tf.Variable(v_init*ones,name=rawname,trainable=False,dtype=tf.float32)
-                ##m_unbiased = m/(1.0-m_alpha)
-                ##v_unbiased = v/(1.0-v_alpha)
-                #m_unbiased = m/(1.0-m_alpha**(1+global_step_float))
-                #v_unbiased = v/(1.0-v_alpha**(1+global_step_float))
-                ##v_unbiased = (v-(1.0-v_alpha)*v_init)/(1.0-v_alpha**(1+global_step_float))
-                #clip = m_unbiased+tf.sqrt(v_unbiased)*opts['num_stddevs']
-                #grad2_abs = tf.minimum(tf.abs(grad),clip)
-                #m2 = m_alpha*m + (1.0-m_alpha)*tf.minimum(grad2_abs,clip)
-                #v2 = v_alpha*v + (1.0-v_alpha)*tf.minimum(grad2_abs,clip)**2
-                #grad2=tf.sign(grad)*grad2_abs
-                #gradients2.append(grad2)
-                #m_update=tf.assign(m,m2)
-                #v_update=tf.assign(v,v2)
-                #update_clipper=tf.group(update_clipper,m_update,v_update)
-
+    return train_op 
