@@ -5,6 +5,7 @@ log.old
 *.swp
 *.pyc
 
+*.eps
 *.png
 *.gif
 *.mp4

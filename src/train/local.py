@@ -45,6 +45,7 @@ def modify_parser(subparsers):
     subparser_optimizer.add_argument('--epochs',type=int,default=100)
 
     subparser_robust = subparser.add_argument_group('robustness options')
+    subparser_robust.add_argument('--robust_log',action='store_true')
     subparser_robust.add_argument('--disable_robust',action='store_true')
     subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='dp')
     subparser_robust.add_argument('--clip_type',choices=['none','global','local'],default='none')
@@ -55,6 +56,54 @@ def modify_parser(subparsers):
 ################################################################################
 
 def train_with_hyperparams(model,data,partitionargs):
+
+    ########################################
+    print('  setup logging')
+
+    dirname_opts={}
+    for opt in partitionargs['train']['dirname_opts']:
+        dirname_opts[opt]=partitionargs['train'][opt]
+    dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
+
+    import hashlib
+    import os
+    import shutil
+    optshash=hashlib.sha224(str(partitionargs)).hexdigest()
+    dirname = 'optshash='+optshash+'-'+dirname_opts_str
+    log_dir = partitionargs['train']['log_dir']+'/'+dirname
+    log_dir_current=log_dir+'/'+'current'
+    log_dir_best=log_dir+'/'+'best'
+
+    # create directory
+
+    if partitionargs['train']['delete_log']:
+        shutil.rmtree(log_dir,ignore_errors=True)
+
+    try:
+        os.makedirs(log_dir)
+    except OSError as e:
+        if e.errno == os.errno.EEXIST and os.path.isdir(log_dir):
+            pass
+        else:
+            raise
+
+    print('    log_dir = '+log_dir)
+
+    # create symlinks to the log_dir
+
+    symlink=partitionargs['train']['log_dir']+'/recent'
+    try:
+        os.remove(symlink)
+    except:
+        pass
+    try:
+        os.symlink(dirname,symlink)
+        print('    symlink = '+symlink)
+    except Exception as e:
+        print('    failed to create symlink ')
+        print('    dirname: ',dirname)
+        print('    symlink: ',symlink)
+        print('    exception: ',e)
 
     ########################################
     print('  creating tensorflow model')
@@ -82,7 +131,7 @@ def train_with_hyperparams(model,data,partitionargs):
             data.train.output_types,
             data.train.output_shapes
             )
-    x_,y_,z_ = iterator.get_next()
+    x_,y_,z_,mod_ = iterator.get_next()
     y_argmax_=tf.argmax(y_,axis=1)
 
     init_train=iterator.make_initializer(data.train),
@@ -159,14 +208,19 @@ def train_with_hyperparams(model,data,partitionargs):
         m_unbiased=0
 
     else:
+        import robust
+
         if not partitionargs['train']['window_size']:
             try:
                 partitionargs['train']['window_size']=data.train_numdp
             except:
                 partitionargs['train']['window_size']=10000
 
-        import robust
-        train_op,global_norm,clip,m_unbiased=robust.robust_minimize(
+        robust_log_dir=None
+        if partitionargs['train']['robust_log']:
+            robust_log_dir=log_dir
+
+        train_op=robust.robust_minimize(
                 optimizer,
                 loss,
                 loss_per_dp,
@@ -176,7 +230,9 @@ def train_with_hyperparams(model,data,partitionargs):
                 clip_type=partitionargs['train']['clip_type'],
                 clip_activation=partitionargs['train']['clip_activation'],
                 clip_percentile=partitionargs['train']['clip_percentile'],
-                window_size=partitionargs['train']['window_size']
+                window_size=partitionargs['train']['window_size'],
+                log_dir=robust_log_dir,
+                marks=[z_,y_argmax_,mod_],
                 )
 
     if partitionargs['train']['tensorboard']:
@@ -249,33 +305,16 @@ def train_with_hyperparams(model,data,partitionargs):
             except Exception as e:
                 print('  failed to restore: ',e)
 
+        # populate log_dir
+
         writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
         writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
-        print('    log_dir = '+log_dir)
-
-        # create symlinks to the log_dir
-
-        symlink=partitionargs['train']['log_dir']+'/recent'
-        try:
-            os.remove(symlink)
-        except:
-            pass
-        try:
-            os.symlink(dirname,symlink)
-            print('    symlink = '+symlink)
-        except Exception as e:
-            print('    failed to create symlink ')
-            print('    dirname: ',dirname)
-            print('    symlink: ',symlink)
-            print('    exception: ',e)
-
-        # misc files in log_dir
 
         with open(log_dir+'/opts.txt','w',1) as f:
             import json
             f.write(json.dumps(partitionargs, sort_keys=True, indent=4))
 
-        file_batch=open(log_dir+'/batch.txt','w',1)
+        file_grads=open(log_dir+'/grads.txt','w',1)
         file_epoch=open(log_dir+'/epoch.txt','w',1)
         file_results=open(log_dir+'/results.txt','w',1)
 
@@ -332,15 +371,14 @@ def train_with_hyperparams(model,data,partitionargs):
                 try:
                     sess.run(reset_summary_vars)
                     while True:
-                        tracker_ops=[global_step,y_argmax_,z_,global_norm,clip,m_unbiased]+loss_values
                         batch_start=time.clock()
-                        loss_res,tracker_res,_,_=sess.run([loss,tracker_ops,loss_updates,train_op],feed_dict={is_training:True})
+                        loss_res,_,_=sess.run(
+                                [loss,loss_updates,train_op],
+                                feed_dict={is_training:True}
+                                )
                         if partitionargs['train']['verbose']:
                             print('    step=%d, loss=%g, sec=%g           '%(global_step.eval(),loss_res,time.clock()-batch_start))
                             print('\033[F',end='')
-                        nextline=' '.join(map(str,tracker_res))
-                        nextline=filter(lambda x: x not in '[],', nextline)
-                        file_batch.write(nextline+'\n')
                         if partitionargs['train']['tensorboard']:
                             writer_train.add_summary(summary, global_step.eval())
                 except tf.errors.OutOfRangeError:
