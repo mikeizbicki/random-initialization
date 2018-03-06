@@ -15,6 +15,9 @@ def robust_minimize(
         marks=[],
         ):
 
+    if batch_size==1:
+        clip_method='batch'
+
     import tensorflow as tf
     import numpy as np
     import math

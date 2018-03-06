@@ -130,7 +130,7 @@ def train_with_hyperparams(model,data,partitionargs):
             data.train.output_types,
             data.train.output_shapes
             )
-    x_,y_,z_ = iterator.get_next()
+    x_,y_,z_,mod_ = iterator.get_next()
     y_argmax_=tf.argmax(y_,axis=1)
 
     init_train=iterator.make_initializer(data.train),
@@ -231,7 +231,7 @@ def train_with_hyperparams(model,data,partitionargs):
                 clip_percentile=partitionargs['train']['clip_percentile'],
                 window_size=partitionargs['train']['window_size'],
                 log_dir=robust_log_dir,
-                marks=[z_,y_argmax_],
+                marks=[z_,y_argmax_,mod_],
                 )
 
     if partitionargs['train']['tensorboard']:

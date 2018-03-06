@@ -22,87 +22,94 @@ def preprocess_data(data,partitionargs):
     with tf.name_scope('inputs'):
         data.init(partitionargs['data'])
 
-        def unit_norm(x,y,id):
+        def add_var(x,y,id):
+            return (x,y,id,0)
+
+        def unit_norm(x,y,id,mod):
             if partitionargs['preprocess']['unit_norm']:
-                return (x/tf.norm(x),y,id)
+                return (x/tf.norm(x),y,id,mod)
             else:
-                return (x,y,id)
+                return (x,y,id,mod)
 
         gaussian_X_norms=tf.random_normal([partitionargs['preprocess']['gaussian_X']]+data.dimX)
-        def gaussian_X(x,y,id):
-            x2=tf.cond(
+        def gaussian_X(x,y,id,mod):
+            (mod2,x2)=tf.cond(
                     partitionargs['preprocess']['gaussian_X']>id,
-                    lambda:gaussian_X_norms[id,...]*tf.norm(x),
-                    lambda:x
+                    lambda:(1,gaussian_X_norms[id,...]*tf.norm(x)),
+                    lambda:(mod,x)
                     )
-            return (x2,y,id)
+            return (x2,y,id,mod2)
 
-        def zero_Y(x,y,id):
-            y2=tf.cond(
+        def zero_Y(x,y,id,mod):
+            (mod2,y2)=tf.cond(
                     partitionargs['preprocess']['zero_Y']>id,
-                    lambda:0*y,
-                    lambda:y
+                    lambda:(1,0*y),
+                    lambda:(mod,y)
                     )
-            return (x,y2,id)
+            return (x,y2,id,mod2)
 
-        def max_Y(x,y,id):
+        def max_Y(x,y,id,mod):
             try:
-                y2=tf.cond(
+                (mod2,y2)=tf.cond(
                         partitionargs['preprocess']['max_Y']>id,
-                        lambda:data.train_Y_max,
-                        lambda:y
+                        lambda:(1,data.train_Y_max),
+                        lambda:(mod,y)
                         )
             except AttributeError:
                 y2=y
-            return (x,y2,id)
+                mod2=mod
+            return (x,y2,id,mod2)
 
-        def label_corruption(x,y,id):
+        def label_corruption(x,y,id,mod):
             if partitionargs['preprocess']['label_corruption']>0:
-                y2=tf.cond(
+                (mod2,y2)=tf.cond(
                         id>=partitionargs['preprocess']['label_corruption'],
-                        lambda: y,
-                        lambda: tf.concat([y[1:],y[:1]],axis=0)
+                        lambda: (mod,y),
+                        lambda: (  1,tf.concat([y[1:],y[:1]],axis=0))
                         )
             else:
                 y2=y
-            return (x,y2,id)
+                mod2=mod
+            return (x,y2,id,mod2)
 
-        def label_unshifted_percentile(x,y,id):
+        def label_unshifted_percentile(x,y,id,mod):
             if partitionargs['preprocess']['label_unshifted_percentile']<100.0:
-                y2=tf.cond(
+                (mod2,y2)=tf.cond(
                         id%100<=int(partitionargs['preprocess']['label_unshifted_percentile']),
-                        lambda: y,
-                        lambda: tf.concat([y[1:],y[:1]],axis=0)
+                        lambda: (mod,y),
+                        lambda: (  1,tf.concat([y[1:],y[:1]],axis=0))
                         )
             else:
                 y2=y
-            return (x,y2,id)
+                mod2=mod
+            return (x,y2,id,mod2)
 
-        def pad_dim(x,y,id):
+        def pad_dim(x,y,id,mod):
             if partitionargs['preprocess']['pad_dim']>0:
                 x2=tf.pad(
                         x,
                         [[0,partitionargs['preprocess']['pad_dim']],[0,partitionargs['preprocess']['pad_dim']],[0,0]],
                         constant_values=0.5,
                         )
-                return (x2,y,id)
+                return (x2,y,id,mod)
             else:
-                return (x,y,id)
+                return (x,y,id,mod)
 
-        def triangle(x,y,id):
+        def triangle(x,y,id,mod):
             if partitionargs['preprocess']['triangle']>0:
                 dimXnew=[data.dimX[0]+partitionargs['preprocess']['pad_dim'],data.dimX[1]+partitionargs['preprocess']['pad_dim']]
                 triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
                 triangle=triangle.reshape(dimXnew+[data.dimX[2]])
-                x2=tf.cond(
+                (mod2,x2)=tf.cond(
                         id<partitionargs['preprocess']['triangle'],
-                        lambda:triangle,
-                        lambda:x
+                        lambda:(1,triangle),
+                        lambda:(mod,x)
                         )
-                return (x2,y,id)
+                return (x2,y,id,mod2)
             else:
-                return (x,y,id)
+                return (x,y,id,mod)
 
+        data.train = data.train.map(add_var)
         data.train = data.train.map(unit_norm)
         data.train = data.train.map(label_corruption)
         data.train = data.train.map(label_unshifted_percentile)
@@ -114,10 +121,12 @@ def preprocess_data(data,partitionargs):
         #data.train = data.train.shuffle(partitionargs['preprocess']['batch_size']*20,seed=0)
         #data.train = data.train.batch(partitionargs['preprocess']['batch_size'])
 
+        data.valid = data.valid.map(add_var)
         data.valid = data.valid.map(unit_norm)
         data.valid = data.valid.map(pad_dim)
         #data.valid = data.valid.batch(partitionargs['preprocess']['batch_size_test'])
 
+        data.test = data.test.map(add_var)
         data.test = data.test.map(unit_norm)
         data.test = data.test.map(pad_dim)
         #data.test = data.test.batch(partitionargs['preprocess']['batch_size_test'])
