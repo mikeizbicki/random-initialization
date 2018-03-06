@@ -23,6 +23,7 @@ def modify_parser(subparsers):
     subparser_train.add_argument('--verbose',action='store_true',default=False)
     subparser_train.add_argument('--do_sklearn',action='store_true')
     subparser_train.add_argument('--naive_mean',action='store_true')
+    subparser_train.add_argument('--restore_from',type=str,default=None)
 
     subparser_log = subparser.add_argument_group('logging options')
     subparser_log.add_argument('--log_dir',type=str,default='log')
@@ -45,7 +46,7 @@ def modify_parser(subparsers):
 
     subparser_robust = subparser.add_argument_group('robustness options')
     subparser_robust.add_argument('--disable_robust',action='store_true')
-    subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='batch')
+    subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='dp')
     subparser_robust.add_argument('--clip_type',choices=['none','global','local'],default='none')
     subparser_robust.add_argument('--clip_activation',choices=['soft','hard'],default='soft')
     subparser_robust.add_argument('--clip_percentile',type=interval(float),default=99)
@@ -232,14 +233,21 @@ def train_with_hyperparams(model,data,partitionargs):
             shutil.rmtree(log_dir,ignore_errors=True)
         else:
             try:
-                chpt=tf.train.latest_checkpoint(log_dir_current)
+                if partitionargs['train']['restore_from'] is None:
+                    restore_dir=log_dir
+                    restore_subdir='/current'
+                else:
+                    restore_dir=partitionargs['train']['restore_from']
+                    restore_subdir='/best'
+                    print('  restoring from ',restore_dir)
+                chpt=tf.train.latest_checkpoint(restore_dir+restore_subdir)
                 saver.restore(sess,chpt)
-                with open(log_dir_best+'/loss.txt','r') as f:
+                with open(restore_dir+'/best/loss.txt','r') as f:
                     best_loss=float(f.readline())
-                with open(log_dir_best+'/epoch.txt','r') as f:
+                with open(restore_dir+'/best/epoch.txt','r') as f:
                     best_epoch=float(f.readline())
-            except:
-                pass
+            except Exception as e:
+                print('  failed to restore: ',e)
 
         writer_train = tf.summary.FileWriter(log_dir+'/train',sess.graph)
         writer_test = tf.summary.FileWriter(log_dir+'/test',sess.graph)
@@ -358,7 +366,7 @@ def train_with_hyperparams(model,data,partitionargs):
             try:
                 os.stat(log_dir_current)
             except:
-                os.mkdir(log_dir_current) 
+                os.mkdir(log_dir_current)
             saver.save(sess,log_dir_current+'/model.chpt',global_step=global_step)
 
             # update best model
