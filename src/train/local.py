@@ -21,7 +21,9 @@ def modify_parser(subparsers):
     subparser_train.add_argument('--seed_node',type=int,default=0)
     subparser_train.add_argument('--seed_np',type=int,default=0)
     subparser_train.add_argument('--verbose',action='store_true',default=False)
-    subparser_train.add_argument('--do_sklearn',action='store_true')
+    subparser_train.add_argument('--savebatch',action='store_true',default=False)
+    subparser_train.add_argument('--sklearn_classification',action='store_true')
+    subparser_train.add_argument('--sklearn_regression',action='store_true')
     subparser_train.add_argument('--naive_mean',action='store_true')
     subparser_train.add_argument('--restore_from',type=str,default=None)
 
@@ -36,6 +38,7 @@ def modify_parser(subparsers):
     subparser_optimizer.add_argument('--batch_size',type=interval(int),default=1)
     subparser_optimizer.add_argument('--batch_size_valid',type=interval(int),default=100)
     subparser_optimizer.add_argument('--learning_rate',type=interval(float),default=-3)
+    subparser_optimizer.add_argument('--weight_decay',type=interval(float),default=0)
     subparser_optimizer.add_argument('--decay',choices=['inverse_time','natural_exp','piecewise_constant','polynomial','exponential','none','sqrt'],default='none')
     subparser_optimizer.add_argument('--decay_steps',type=interval(float),default=100000)
     subparser_optimizer.add_argument('--optimizer',choices=['sgd','momentum','adam','adagrad','adagradda','adadelta','ftrl','psgd','padagrad','rmsprop'],default='sgd')
@@ -49,8 +52,10 @@ def modify_parser(subparsers):
     subparser_robust.add_argument('--disable_robust',action='store_true')
     subparser_robust.add_argument('--clip_method',choices=['batch','batch_naive','dp','dp_naive'],default='dp')
     subparser_robust.add_argument('--clip_type',choices=['none','global','local'],default='none')
-    subparser_robust.add_argument('--clip_activation',choices=['soft','hard'],default='soft')
+    subparser_robust.add_argument('--clip_function',choices=['soft','hard'],default='soft')
     subparser_robust.add_argument('--clip_percentile',type=interval(float),default=99)
+    subparser_robust.add_argument('--clip_threshold',type=interval(float),default=0)
+    subparser_robust.add_argument('--disable_clip_perclass',action='store_true')
     subparser_robust.add_argument('--window_size',type=interval(int),default=None)
 
 ################################################################################
@@ -61,9 +66,13 @@ def train_with_hyperparams(model,data,partitionargs):
     print('  setup logging')
 
     dirname_opts={}
+    dirname_opts_str=""
     for opt in partitionargs['train']['dirname_opts']:
-        dirname_opts[opt]=partitionargs['train'][opt]
-    dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
+        opt_split=opt.split('/')
+        #dirname_opts[opt]=partitionargs[opt_split[0]][opt_split[1]]
+        #dirname_opts[opt]=partitionargs['train'][opt]
+        dirname_opts_str+='_'+opt_split[1]+'='+str(partitionargs[opt_split[0]][opt_split[1]])
+    #dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
 
     import hashlib
     import os
@@ -142,11 +151,21 @@ def train_with_hyperparams(model,data,partitionargs):
     y_argmax = tf.argmax(y)
     loss,loss_per_dp = model.loss(partitionargs['model'],y_,y)
 
-    if partitionargs['train']['tensorboard']:
-        with tf.name_scope('batch/'):
-            vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-            for var in vars:
-                tf.summary.histogram(var.name,var)
+    with tf.name_scope('weight_decay'):
+        vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        weight=0
+        for var in vars:
+            weight+=tf.reduce_sum(var*var)
+        weight*=partitionargs['train']['weight_decay']
+        loss+=weight
+        loss_per_dp+=weight
+        #loss_per_dp=tf.map_fn(lambda l: l+weight,loss_per_dp)
+
+    #if partitionargs['train']['tensorboard']:
+        #with tf.name_scope('batch/'):
+            #vars=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+            #for var in vars:
+                #tf.summary.histogram(var.name,var)
 
     ########################################
     print('  creating tensorflow optimizer')
@@ -154,9 +173,9 @@ def train_with_hyperparams(model,data,partitionargs):
     # set learning rate
 
     learning_rate=10**partitionargs['train']['learning_rate']
-    if data.train_numdp:
+    try:
         decay_steps=data.train_numdp
-    else:
+    except:
         decay_steps=100000
 
     if partitionargs['train']['decay']=='exponential':
@@ -226,21 +245,24 @@ def train_with_hyperparams(model,data,partitionargs):
                 loss_per_dp,
                 global_step,
                 partitionargs['train']['batch_size'],
+                y_,
                 clip_method=partitionargs['train']['clip_method'],
                 clip_type=partitionargs['train']['clip_type'],
-                clip_activation=partitionargs['train']['clip_activation'],
+                clip_function=partitionargs['train']['clip_function'],
                 clip_percentile=partitionargs['train']['clip_percentile'],
+                clip_threshold=partitionargs['train']['clip_threshold'],
+                clip_perclass=not partitionargs['train']['disable_clip_perclass'],
                 window_size=partitionargs['train']['window_size'],
                 log_dir=robust_log_dir,
                 marks=[z_,y_argmax_,mod_],
                 )
 
-    if partitionargs['train']['tensorboard']:
-        with tf.name_scope('batch/'):
-            for grad,var in grads_and_vars:
-                tf.summary.histogram(var.name+'_grad',grad)
-            for grad,var in grads_and_vars2:
-                tf.summary.histogram(var.name+'_grad_rob',grad)
+    #if partitionargs['train']['tensorboard']:
+        #with tf.name_scope('batch/'):
+            #for grad,var in grads_and_vars:
+                #tf.summary.histogram(var.name+'_grad',grad)
+            #for grad,var in grads_and_vars2:
+                #tf.summary.histogram(var.name+'_grad_rob',grad)
 
     ########################################
     print('  creating tensorflow session')
@@ -271,20 +293,15 @@ def train_with_hyperparams(model,data,partitionargs):
 
         # create a log dir
 
-        dirname_opts={}
-        for opt in partitionargs['train']['dirname_opts']:
-            dirname_opts[opt]=partitionargs['train'][opt]
-        dirname_opts_str=str(dirname_opts).translate(None,"{}: '")
-
-        import hashlib
-        import os
-        import shutil
-        optshash=hashlib.sha224(str(partitionargs)).hexdigest()
-        dirname = 'optshash='+optshash+'-'+dirname_opts_str
-        log_dir = partitionargs['train']['log_dir']+'/'+dirname
-        log_dir_current=log_dir+'/'+'current'
-        log_dir_best=log_dir+'/'+'best'
-
+        #import hashlib
+        #import os
+        #import shutil
+        #optshash=hashlib.sha224(str(partitionargs)).hexdigest()
+        #dirname = 'optshash='+optshash+'-'+dirname_opts_str
+        #log_dir = partitionargs['train']['log_dir']+'/'+dirname
+        #log_dir_current=log_dir+'/'+'current'
+        #log_dir_best=log_dir+'/'+'best'
+#
         if partitionargs['train']['delete_log']:
             shutil.rmtree(log_dir,ignore_errors=True)
         else:
@@ -314,7 +331,7 @@ def train_with_hyperparams(model,data,partitionargs):
             import json
             f.write(json.dumps(partitionargs, sort_keys=True, indent=4))
 
-        file_grads=open(log_dir+'/grads.txt','w',1)
+        file_batch=open(log_dir+'/batch.txt','w',1)
         file_epoch=open(log_dir+'/epoch.txt','w',1)
         file_results=open(log_dir+'/results.txt','w',1)
 
@@ -327,8 +344,11 @@ def train_with_hyperparams(model,data,partitionargs):
                     })
 
         ########################################
-        if partitionargs['train']['do_sklearn']:
+        if partitionargs['train']['sklearn_regression'] or partitionargs['train']['sklearn_classification']:
+            print('sklearn')
             from sklearn import linear_model
+            from sklearn.metrics import mean_squared_error,accuracy_score
+            file_sklearn=open(log_dir+'/results-sklearn.txt','w',1)
 
             train_X=[]
             train_Y=[]
@@ -337,18 +357,34 @@ def train_with_hyperparams(model,data,partitionargs):
                 while True:
                     X,Y=sess.run([x_,y_])
                     train_X.append(X)
-                    train_Y.append(np.argmax(Y,axis=1))
+                    if partitionargs['train']['sklearn_regression']:
+                        train_Y.append(Y)
+                        test_Y=data.test_Y
+                    else:
+                        train_Y.append(np.argmax(Y,axis=1))
+                        test_Y=np.argmax(data.test_Y,axis=1)
             except tf.errors.OutOfRangeError:
                 train_X=np.concatenate(train_X,axis=0)
                 train_Y=np.concatenate(train_Y,axis=0)
 
-            logreg = linear_model.LogisticRegression(C=1/partitionargs['train']['l2'])
-            logreg.fit(train_X,train_Y)
-            print('logreg score=',logreg.score(data.valid_X,np.argmax(data.valid_Y,axis=1)))
+            if partitionargs['train']['sklearn_regression']:
+                models=[('ols',linear_model.LinearRegression())
+                       ,('Theil-Sen', linear_model.TheilSenRegressor(random_state=42))
+                       ,('RANSAC', linear_model.RANSACRegressor(random_state=42))
+                       ,('HuberRegressor', linear_model.HuberRegressor())]
+                skloss=mean_squared_error
+            else:
+                models=[('logreg',linear_model.LogisticRegression(C=1e6))]
+                skloss=accuracy_score
 
-            ransac = linear_model.LogisticRegression(C=1/partitionargs['train']['l2'])
-            ransac.fit(train_X,train_Y)
-            print('ransac score=',ransac.score(data.valid_X,np.argmax(data.valid_Y,axis=1)))
+            for (name,model) in models:
+                model.fit(train_X,train_Y)
+                result_model=skloss(model.predict(data.test_X),test_Y)
+                print('  model:',name,'; loss:',result_model)
+                file_sklearn.write(str(result_model)+' ')
+
+            file_sklearn.write('\n')
+            file_sklearn.close()
 
         if partitionargs['train']['naive_mean']:
             file_results.write(' '.join(map(str,data.naive_accuracies))+' ')
@@ -372,13 +408,15 @@ def train_with_hyperparams(model,data,partitionargs):
                     sess.run(reset_summary_vars)
                     while True:
                         batch_start=time.clock()
-                        loss_res,_,_=sess.run(
-                                [loss,loss_updates,train_op],
+                        loss_res,_,summary,_=sess.run(
+                                [loss,loss_updates,summary_batch,train_op],
                                 feed_dict={is_training:True}
                                 )
                         if partitionargs['train']['verbose']:
                             print('    step=%d, loss=%g, sec=%g           '%(global_step.eval(),loss_res,time.clock()-batch_start))
                             print('\033[F',end='')
+                        if partitionargs['train']['savebatch']:
+                            file_batch.write(str(global_step.eval())+' '+str(loss_res)+'\n')
                         if partitionargs['train']['tensorboard']:
                             writer_train.add_summary(summary, global_step.eval())
                 except tf.errors.OutOfRangeError:
@@ -389,8 +427,13 @@ def train_with_hyperparams(model,data,partitionargs):
             sess.run(init_valid,feed_dict={is_training:False})
             try:
                 sess.run(reset_summary_vars)
+                validation_step=0
                 while True:
                     sess.run(loss_updates,feed_dict={is_training:False})
+                    if partitionargs['train']['verbose']:
+                        print('    validation_step=%d'%validation_step)
+                        print('\033[F',end='')
+                    validation_step+=1
             except tf.errors.OutOfRangeError:
                 res,summary=sess.run([loss_values,summary_epoch],feed_dict={is_training:False})
                 if partitionargs['train']['tensorboard']:

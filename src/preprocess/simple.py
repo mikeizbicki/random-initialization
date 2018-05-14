@@ -8,6 +8,7 @@ def modify_parser(subparsers):
     subparser_preprocess.add_argument('--unit_norm',action='store_true')
     subparser_preprocess.add_argument('--triangle',type=interval(int),default=0)
     subparser_preprocess.add_argument('--label_corruption',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--label_corruption_valid',type=interval(int),default=0)
     subparser_preprocess.add_argument('--label_unshifted_percentile',type=interval(float),default=100.0)
     subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
     subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
@@ -26,7 +27,7 @@ def preprocess_data(data,partitionargs):
         data.init(partitionargs['data'])
 
         def add_var(x,y,id):
-            return (x,y,id,0)
+            return (x,y,id,tf.constant(0))
 
         def unit_norm(x,y,id,mod):
             if partitionargs['preprocess']['unit_norm']:
@@ -75,6 +76,19 @@ def preprocess_data(data,partitionargs):
                 mod2=mod
             return (x,y2,id,mod2)
 
+        def label_corruption_valid(x,y,id,mod):
+            if partitionargs['preprocess']['label_corruption_valid']>0:
+                (mod2,y2)=tf.cond(
+                        id>=partitionargs['preprocess']['label_corruption_valid'],
+                        lambda: (mod,y),
+                        lambda: (  1,tf.concat([y[1:],y[:1]],axis=0))
+                        )
+            else:
+                y2=y
+                mod2=mod
+            return (x,y2,id,mod2)
+
+
         def label_unshifted_percentile(x,y,id,mod):
             if partitionargs['preprocess']['label_unshifted_percentile']<100.0:
                 (mod2,y2)=tf.cond(
@@ -102,6 +116,7 @@ def preprocess_data(data,partitionargs):
             if partitionargs['preprocess']['triangle']>0:
                 dimXnew=[data.dimX[0]+partitionargs['preprocess']['pad_dim'],data.dimX[1]+partitionargs['preprocess']['pad_dim']]
                 triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
+                triangle=np.tile(triangle,(1,1,data.dimX[2]))
                 triangle=triangle.reshape(dimXnew+[data.dimX[2]])
                 (mod2,x2)=tf.cond(
                         id<partitionargs['preprocess']['triangle'],
@@ -129,6 +144,7 @@ def preprocess_data(data,partitionargs):
 
             data.valid = data.valid.map(num_parallel_calls=p,map_func=add_var)
             data.valid = data.valid.map(num_parallel_calls=p,map_func=unit_norm)
+            data.valid = data.valid.map(num_parallel_calls=p,map_func=label_corruption_valid)
             data.valid = data.valid.map(num_parallel_calls=p,map_func=pad_dim)
             #data.valid = data.valid.batch(partitionargs['preprocess']['batch_size_test'])
             data.valid = data.valid.prefetch(partitionargs['preprocess']['prefetch'])

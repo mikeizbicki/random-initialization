@@ -3,6 +3,7 @@
 log
 log.old
 *.swp
+*.swo
 *.pyc
 
 *.eps

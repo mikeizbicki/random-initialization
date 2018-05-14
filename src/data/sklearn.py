@@ -28,8 +28,8 @@ def init(args):
     global test_numdp
     global test_X
     global test_Y
-    global dimX 
-    global dimY 
+    global dimX
+    global dimY
 
     regression=['boston','linnerud','diabetes']
     classification=['iris','digits','wine','breast_cancer']
@@ -73,11 +73,11 @@ def init(args):
     test_Id = np.array(range(0,test_numdp))
     test=tf.data.Dataset.from_tensor_slices((np.float32(test_X),np.float32(test_Y),test_Id))
 
-    valid_numdp=test_numdp
-    valid_X=test_X
-    valid_Y=test_Y
-    valid_Id=test_Id
-    valid=test
+    valid_numdp=train_numdp
+    valid_X=train_X
+    valid_Y=train_Y
+    valid_Id=train_Id
+    valid=train
 
     global train_Y_max
     train_Y_max = np.float32(np.amax(train_Y,axis=0))

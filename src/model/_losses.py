@@ -25,6 +25,33 @@ def classification(args,y_,y):
         #for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
             #regularization+=tf.nn.l2_loss(var)*args['l2']
 
+        if args['loss']=='default':
+            args['loss']='xentropy'
+
+        loss = eval(args['loss'])
+        loss_per_dp = eval(args['loss']+'_per_dp')
+
+    return loss,loss_per_dp
+
+def regression(args,y_,y):
+    import tensorflow as tf
+
+    with tf.name_scope('losses'):
+        diff_y = tf.abs(y_-y)
+        mse_per_dp = diff_y**2
+        mse = tf.reduce_mean(mse_per_dp)
+        huber_per_dp = tf.where(diff_y<1,diff_y**2,diff_y)
+        huber = tf.reduce_mean(huber_per_dp)
+        absdiff_per_dp = diff_y
+        absdiff = tf.reduce_mean(diff_y)
+
+        tf.add_to_collection(tf.GraphKeys.LOSSES,mse)
+        tf.add_to_collection(tf.GraphKeys.LOSSES,huber)
+        tf.add_to_collection(tf.GraphKeys.LOSSES,absdiff)
+
+        if args['loss']=='default':
+            args['loss']='mse'
+
         loss = eval(args['loss'])
         loss_per_dp = eval(args['loss']+'_per_dp')
 

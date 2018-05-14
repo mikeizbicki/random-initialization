@@ -12,7 +12,8 @@ def modify_parser(subparsers):
     parser_weights.add_argument('--normalize',action='store_true')
     parser_weights.add_argument('--zerow',action='store_true')
 
-    parser_weights.add_argument('--loss',choices=['mse','xentropy','xentropy_robust','huber','absdiff'],default='xentropy')
+    parser_weights.add_argument('--type',choices=['regression','classification'],default='classification')
+    parser_weights.add_argument('--loss',choices=['default','mse','xentropy','xentropy_robust','huber','absdiff'],default='default')
     #parser_weights.add_argument('--eval',choices=['mse','xentropy','accuracy'],default='accuracy')
 
     parser_weights.add_argument('--l2',type=interval(float),default=1e-6)
@@ -43,8 +44,13 @@ def inference(x_,data,opts,is_training):
         waxes=range(0,len(data.dimX))
         y = tf.tensordot(x_,w,axes=(map(lambda x: x+1,waxes),waxes))+b
 
+    import model._losses
+    global loss
+    if opts['type']=='classification':
+        loss = model._losses.classification
+    else:
+        loss = model._losses.regression
+
     return y
 
-import model._losses
-loss = model._losses.classification
 

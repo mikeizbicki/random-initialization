@@ -9,7 +9,7 @@ def modify_parser(subparsers):
 
     parser = subparsers.add_parser('tflearn', help='toy deep learning image datasets from tflearn library')
     parser.add_argument('--name',choices=['cifar10','cifar100','imdb','mnist','oxflower17','svhn','titanic'])
-    parser.add_argument('--data_dir',type=str,default='data/tflearn')
+    parser.add_argument('--data_dir',type=str,default='/rhome/mizbicki/bigdata/random-initialization/data/tflearn')
     parser.add_argument('--numdp',type=interval(int),default=1e10)
     parser.add_argument('--numdp_balanced',action='store_true')
     parser.add_argument('--numdp_test',type=interval(int),default=1e20)
@@ -43,7 +43,7 @@ def init(args):
     random.seed(args['seed'])
     np.random.seed(args['seed'])
 
-    
+
     if args['name']=='cifar10':
         (train_X, train_Y), (test_X, test_Y) = tflearn.datasets.cifar10.load_data(args['data_dir'])
         num_valid=5000
@@ -53,6 +53,26 @@ def init(args):
         train_Y=train_Y[:50000-num_valid,...]
         dimX=[32,32,3]
         dimY=10
+    elif args['name']=='oxflower17':
+        #(X,Y)=tflearn.datasets.oxflower17.load_data(args['data_dir'],resize_pics=(32,32))
+        def shuffle_in_unison_scary(a, b):
+            rng_state = np.random.get_state()
+            np.random.shuffle(a)
+            np.random.set_state(rng_state)
+            np.random.shuffle(b)
+        (X,Y)=tflearn.datasets.oxflower17.load_data(args['data_dir'],shuffle=False)
+        shuffle_in_unison_scary(X,Y)
+        print('Y=',Y)
+        train_X=X[0:900,...]
+        train_Y=Y[0:900,...]
+        valid_X=X[900:1000,...]
+        valid_Y=Y[900:1000,...]
+        test_X=X[1000:,...]
+        test_Y=Y[1000:,...]
+        dimX=[224,224,3]
+        dimY=17
+        #print('X=',X.shape)
+        #print('Y=',Y.shape)
     elif args['name']=='mnist':
         #train_X, train_Y, test_X, test_Y = tflearn.datasets.mnist.load_data(args['data_dir'])
         #train_X=train_X.reshape([55000,28,28,1])

@@ -35,8 +35,8 @@ def init(args):
     global test_numdp
     global test_X
     global test_Y
-    global dimX 
-    global dimY 
+    global dimX
+    global dimY
     global mu
 
     dimX=[1]
@@ -70,9 +70,9 @@ def init(args):
 
     scale=args['mu_scale']
     offset=args['mu_offset']*np.ones([1,dimY])
-    mu = offset + scale*normal()
+    mu = offset + np.zeros([1,dimY]) #scale*normal()
     #mu /= np.linalg.norm(mu)/scale
-    mu_corrupt = offset + scale*normal()
+    mu_corrupt = offset + np.ones([1,dimY]) #scale*normal()
     #mu_corrupt /= np.linalg.norm(mu_corrupt)/scale
 
     print('|mu-mu_corrupt|^2=',np.sum((mu-mu_corrupt)**2))
