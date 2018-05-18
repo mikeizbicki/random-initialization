@@ -34,8 +34,8 @@ def inference(x_,data,opts,is_training):
         end_points['Flatten'] = net
 
         net = slim.fully_connected(net, 1024, scope='fc3', weights_initializer=init)
-        net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
-                           scope='dropout3')
+        #net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
+                           #scope='dropout3')
         logits = slim.fully_connected(net, num_classes, activation_fn=None, weights_initializer=init,
                                     scope='fc4')
 

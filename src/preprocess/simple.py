@@ -12,6 +12,10 @@ def modify_parser(subparsers):
     subparser_preprocess.add_argument('--label_unshifted_percentile',type=interval(float),default=100.0)
     subparser_preprocess.add_argument('--gaussian_X',type=interval(int),default=0)
     subparser_preprocess.add_argument('--zero_Y',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--huge_Y',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--huge_X',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--tiny_X',type=interval(int),default=0)
+    subparser_preprocess.add_argument('--ones',type=interval(int),default=0)
     subparser_preprocess.add_argument('--max_Y',type=interval(int),default=0)
     subparser_preprocess.add_argument('--pad_dim',type=interval(int),default=0)
     subparser_preprocess.add_argument('--pad_dim_numbad',type=interval(int),default=0)
@@ -51,6 +55,38 @@ def preprocess_data(data,partitionargs):
                     lambda:(mod,y)
                     )
             return (x,y2,id,mod2)
+
+        def huge_Y(x,y,id,mod):
+            (mod2,y2)=tf.cond(
+                    partitionargs['preprocess']['huge_Y']>id,
+                    lambda:(1,10*y),
+                    lambda:(mod,y)
+                    )
+            return (x,y2,id,mod2)
+
+        def huge_X(x,y,id,mod):
+            (mod2,x2)=tf.cond(
+                    partitionargs['preprocess']['huge_X']>id,
+                    lambda:(1,4*x),
+                    lambda:(mod,x)
+                    )
+            return (x2,y,id,mod2)
+
+        def tiny_X(x,y,id,mod):
+            (mod2,x2)=tf.cond(
+                    partitionargs['preprocess']['tiny_X']>id,
+                    lambda:(1,x/10),
+                    lambda:(mod,x)
+                    )
+            return (x2,y,id,mod2)
+
+        def ones(x,y,id,mod):
+            (mod2,x2)=tf.cond(
+                    partitionargs['preprocess']['ones']>id,
+                    lambda:(1,tf.ones(x.get_shape())),
+                    lambda:(mod,x)
+                    )
+            return (x2,y,id,mod2)
 
         def max_Y(x,y,id,mod):
             try:
@@ -115,7 +151,8 @@ def preprocess_data(data,partitionargs):
         def triangle(x,y,id,mod):
             if partitionargs['preprocess']['triangle']>0:
                 dimXnew=[data.dimX[0]+partitionargs['preprocess']['pad_dim'],data.dimX[1]+partitionargs['preprocess']['pad_dim']]
-                triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
+                #triangle=np.float32(1.414*np.tril(np.ones(dimXnew, dtype=int), -1))
+                triangle=np.float32(1.414e10*np.tril(np.ones(dimXnew, dtype=int), -1))
                 triangle=np.tile(triangle,(1,1,data.dimX[2]))
                 triangle=triangle.reshape(dimXnew+[data.dimX[2]])
                 (mod2,x2)=tf.cond(
@@ -135,9 +172,13 @@ def preprocess_data(data,partitionargs):
             data.train = data.train.map(num_parallel_calls=p,map_func=label_unshifted_percentile)
             data.train = data.train.map(num_parallel_calls=p,map_func=gaussian_X)
             data.train = data.train.map(num_parallel_calls=p,map_func=zero_Y)
+            data.train = data.train.map(num_parallel_calls=p,map_func=huge_Y)
+            data.train = data.train.map(num_parallel_calls=p,map_func=huge_X)
+            data.train = data.train.map(num_parallel_calls=p,map_func=tiny_X)
             data.train = data.train.map(num_parallel_calls=p,map_func=max_Y)
             data.train = data.train.map(num_parallel_calls=p,map_func=pad_dim)
             data.train = data.train.map(num_parallel_calls=p,map_func=triangle)
+            data.train = data.train.map(num_parallel_calls=p,map_func=ones)
             #data.train = data.train.shuffle(partitionargs['preprocess']['batch_size']*20,seed=0)
             #data.train = data.train.batch(partitionargs['preprocess']['batch_size'])
             data.train = data.train.prefetch(partitionargs['preprocess']['prefetch'])

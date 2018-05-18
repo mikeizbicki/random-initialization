@@ -1,14 +1,5 @@
 from __future__ import print_function
 
-def update_tensor(tensor,indices,updates):
-    import tensorflow as tf
-    newvals=tf.SparseTensor(indices,tf.stack(updates),tensor.get_shape())
-
-    updates2=map(lambda i: tensor.__getitem__(i),indices)
-    oldvals=tf.SparseTensor(indices,tf.stack(updates2),tensor.get_shape())
-    #return tensor+tf.sparse_tensor_to_dense(newvals-oldvals)
-    return tensor+tf.sparse_tensor_to_dense(newvals)-tf.sparse_tensor_to_dense(oldvals)
-
 def robust_minimize(
         optimizer,
         loss,
@@ -16,20 +7,63 @@ def robust_minimize(
         global_step,
         batch_size,
         y_,
-        clip_method='dp', #dp,batch,batch_naive
+        clip_method='dp',
         clip_type='global',
         clip_function='soft',
-        clip_threshold=0.0, # implies doing it automatically
+        clip_threshold=0.0,
         clip_percentile=99,
         clip_perclass=True,
         window_size=1000,
         log_dir=None,
         marks=[],
         ):
+    """
+    This function takes as input a standard tensorflow optimizer and outputs a robust version using gradient clipping.
+    It is an implementation of the paper "Stochastic Gradient Descent with Gradient Clipping is Robust to Adversarial Noise" submitted to NIPS 2018.
+
+    Example usage:
+
+        train_op=robust.robust_minimize(
+                tf.train.AdamOptimizer(1e-4),
+                loss,
+                loss_per_dp,
+                global_step,
+                100,
+                y_,
+                )
+    Args:
+        optimizer: the tensorflow optimizer to make robust
+        loss: the loss function; this should be equal to tf.reduce_mean(loss_per_dp)
+        loss_per_dp: a tensor of shape (?,) that has the loss function for each data point
+        global_step: the current step
+        y_: the true response variable
+        clip_method: may be one of 'dp','dp_naive','batch', or 'batch_naive';  the 'dp' and 'dp_naive' methods implement the minibatch heuristic described in the paper
+        clip_type: may be 'none' to disable robustness or 'global' to enable
+        clip_function: may be 'soft' or 'hard'
+        clip_threshold: if this value is greater than zero, then this is the threshold used in gradient clipping; if this value is less than or equal to zero, then use the heuristic from the paper for dynamically selecting clip values
+        clip_percentile: the percentile to clip at when using the dynamic heuristic; recommended to be equal to 1-epsilon
+        clip_perclass: if True, when using the dynamic heuristic, maintain separate lists of past gradients for each class
+        window_size: the total number of past gradients to store
+        log_dir: location to output gradient information from each timestep for debug purposes; setting to None disables output
+        marks: tensors to write to the log dir on each iteration for debug purposes
+
+    Returns:
+        a training op
+
+    Raises:
+        Probably a lot of stuff if there's errors IDK
+    """
 
     import tensorflow as tf
     import numpy as np
     import math
+
+    def update_tensor(tensor,indices,updates):
+        newvals=tf.SparseTensor(indices,tf.stack(updates),tensor.get_shape())
+        updates2=map(lambda i: tensor.__getitem__(i),indices)
+        oldvals=tf.SparseTensor(indices,tf.stack(updates2),tensor.get_shape())
+        #return tensor+tf.sparse_tensor_to_dense(newvals-oldvals)
+        return tensor+tf.sparse_tensor_to_dense(newvals)-tf.sparse_tensor_to_dense(oldvals)
 
     if batch_size==1 or clip_type=='none':
         clip_method='batch'
@@ -76,6 +110,7 @@ def robust_minimize(
             clip=clip_threshold*tf.ones([num_windows])
 
         def clip_gradients(gradients,norm,clip_mod):
+            clip_mod=tf.reshape(clip_mod,())
 
             if clip_type=='none':
                 gradients2=gradients
@@ -96,6 +131,9 @@ def robust_minimize(
                         if grad==None:
                             grad2=None
                         else:
+                            #print('norm=',norm)
+                            #print('clip_mod=',clip_mod)
+                            #print('grad=',grad)
                             grad2=tf.cond(
                                     norm>clip_mod,
                                     lambda:tf.zeros(grad.get_shape()),
@@ -125,11 +163,11 @@ def robust_minimize(
             def go(i,arr_norm,arr_vars):
                 grad=tf.gradients(loss_per_dp[i],variables)
                 norm=tf.global_norm(grad)
-                clip=clip_gradients(grad,norm,tf.reduce_sum(clip*y_[i]))
+                clip_local=clip_gradients(grad,norm,tf.reduce_sum(clip*y_[i]))
                 return [
                         i+1,
                         arr_norm.write(i,norm),
-                        map(lambda (arr,g): arr.write(i,g),zip(arr_vars,clip))
+                        map(lambda (arr,g): arr.write(i,g),zip(arr_vars,clip_local))
                         ]
 
             _,norms,clips=tf.while_loop(
